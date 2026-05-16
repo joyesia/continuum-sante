@@ -149,12 +149,50 @@ server.get("/shares/:id", async (request, reply) => {
     });
   }
 
+  await prisma.accessLog.create({
+    data: {
+      id: crypto.randomUUID(),
+      shareId: sharedBrief.id,
+      ipAddress: request.ip,
+      userAgent: request.headers["user-agent"] || "",
+    },
+  });
+
   return {
     ...sharedBrief,
     observationTitle: sharedBrief.observationTitle || "",
     observationDescription: sharedBrief.observationDescription || "",
     medicationName: sharedBrief.medicationName || "",
     medicationDosage: sharedBrief.medicationDosage || "",
+  };
+});
+
+server.get("/shares/:id/access-logs", async (request, reply) => {
+  const { id } = request.params as { id: string };
+
+  const sharedBrief = await prisma.sharedBrief.findUnique({
+    where: { id },
+  });
+
+  if (!sharedBrief) {
+    return reply.code(404).send({
+      error: "Share not found",
+    });
+  }
+
+  const logs = await prisma.accessLog.findMany({
+    where: {
+      shareId: id,
+    },
+    orderBy: {
+      openedAt: "desc",
+    },
+  });
+
+  return {
+    shareId: id,
+    count: logs.length,
+    logs,
   };
 });
 

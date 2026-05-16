@@ -8,7 +8,7 @@ datasource db {
 }
 
 model SharedBrief {
-  id                     String   @id
+  id                     String      @id
   code                   String
   documentType           String
   actionTitle            String
@@ -18,6 +18,18 @@ model SharedBrief {
   medicationName         String?
   medicationDosage       String?
   source                 String
-  createdAt              DateTime @default(now())
+  createdAt              DateTime    @default(now())
   expiresAt              DateTime
+
+  accessLogs             AccessLog[]
+}
+
+model AccessLog {
+  id          String      @id
+  shareId     String
+  openedAt    DateTime    @default(now())
+  ipAddress   String?
+  userAgent   String?
+
+  sharedBrief SharedBrief @relation(fields: [shareId], references: [id], onDelete: Cascade)
 }
