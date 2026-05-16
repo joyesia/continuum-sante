@@ -1,0 +1,23 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model SharedBrief {
+  id                     String   @id
+  code                   String
+  documentType           String
+  actionTitle            String
+  actionDescription      String
+  observationTitle       String?
+  observationDescription String?
+  medicationName         String?
+  medicationDosage       String?
+  source                 String
+  createdAt              DateTime @default(now())
+  expiresAt              DateTime
+}

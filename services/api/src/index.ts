@@ -3,11 +3,13 @@ import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
+import { PrismaClient } from "@prisma/client";
 
 const require = createRequire(import.meta.url);
 const pdfParse = require("pdf-parse") as (
   buffer: Buffer
 ) => Promise<{ text: string }>;
+const prisma = new PrismaClient();
 
 type SharedBrief = {
   id: string;
@@ -42,7 +44,6 @@ type ExtractedMedicalData = {
   extractedTextPreview: string;
 };
 
-const shares = new Map<string, SharedBrief>();
 
 const server = Fastify({
   logger: true,
@@ -103,35 +104,38 @@ server.post("/shares", async (request, reply) => {
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
-  const sharedBrief: SharedBrief = {
-    id,
-    code,
-    documentType: body.documentType || "Document médical",
-    actionTitle: body.actionTitle || "Action médicale à vérifier",
-    actionDescription:
-      body.actionDescription ||
-      "Élément extrait depuis un document importé par le patient.",
-    observationTitle: body.observationTitle || "",
-    observationDescription: body.observationDescription || "",
-    medicationName: body.medicationName || "",
-    medicationDosage: body.medicationDosage || "",
-    source: body.source || "Document importé",
-    createdAt: now.toISOString(),
-    expiresAt: expiresAt.toISOString(),
-  };
-
-  shares.set(id, sharedBrief);
+  const sharedBrief = await prisma.sharedBrief.create({
+    data: {
+      id,
+      code,
+      documentType: body.documentType || "Document médical",
+      actionTitle: body.actionTitle || "Action médicale à vérifier",
+      actionDescription:
+        body.actionDescription ||
+        "Élément extrait depuis un document importé par le patient.",
+      observationTitle: body.observationTitle || "",
+      observationDescription: body.observationDescription || "",
+      medicationName: body.medicationName || "",
+      medicationDosage: body.medicationDosage || "",
+      source: body.source || "Document importé",
+      expiresAt,
+    },
+  });
 
   return reply.code(201).send({
-    shareId: id,
-    code,
-    url: `http://localhost:3000?shareId=${id}`,
+    shareId: sharedBrief.id,
+    code: sharedBrief.code,
+    url: `http://localhost:3000?shareId=${sharedBrief.id}`,
   });
 });
 
+
 server.get("/shares/:id", async (request, reply) => {
   const { id } = request.params as { id: string };
-  const sharedBrief = shares.get(id);
+
+  const sharedBrief = await prisma.sharedBrief.findUnique({
+    where: { id },
+  });
 
   if (!sharedBrief) {
     return reply.code(404).send({
@@ -139,7 +143,19 @@ server.get("/shares/:id", async (request, reply) => {
     });
   }
 
-  return sharedBrief;
+  if (sharedBrief.expiresAt.getTime() < Date.now()) {
+    return reply.code(410).send({
+      error: "Share expired",
+    });
+  }
+
+  return {
+    ...sharedBrief,
+    observationTitle: sharedBrief.observationTitle || "",
+    observationDescription: sharedBrief.observationDescription || "",
+    medicationName: sharedBrief.medicationName || "",
+    medicationDosage: sharedBrief.medicationDosage || "",
+  };
 });
 
 function extractMedicalDataFromText({
