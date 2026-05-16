@@ -1,0 +1,20 @@
+{
+  "name": "continuum-sante",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Continuum Santé MVP",
+  "type": "module",
+  "packageManager": "pnpm@11.1.2",
+"scripts": {
+  "dev": "turbo run dev --filter=./apps/patient-mobile --filter=./apps/doctor-web",
+  "build": "turbo run build --filter=./apps/patient-mobile --filter=./apps/doctor-web",
+  "lint": "turbo run lint --filter=./apps/patient-mobile --filter=./apps/doctor-web",
+  "typecheck": "turbo run typecheck --filter=./apps/patient-mobile --filter=./apps/doctor-web"
+},
+  "devDependencies": {
+    "eslint": "^10.3.0",
+    "prettier": "^3.8.3",
+    "turbo": "^2.9.12",
+    "typescript": "^6.0.3"
+  }
+}

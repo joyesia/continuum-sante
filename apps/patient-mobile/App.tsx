@@ -1,0 +1,714 @@
+import { useState } from "react";
+import * as DocumentPicker from "expo-document-picker";
+import {
+  Alert,
+  SafeAreaView,
+  ScrollView,
+  Linking,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { StatusBar } from "expo-status-bar";
+
+type Screen = "dashboard" | "analyzing" | "review" | "share";
+type EditingSection = null | "document" | "action" | "medication" | "observation";
+
+type ImportedDocument = {
+  name: string;
+  uri: string;
+  mimeType?: string;
+  size?: number;
+};
+
+type MedicalAction = {
+  id: string;
+  title: string;
+  description: string;
+  source: string;
+};
+
+type Medication = {
+  id: string;
+  name: string;
+  dosage: string;
+  instructions: string;
+  source: string;
+};
+
+type Observation = {
+  id: string;
+  title: string;
+  description: string;
+  source: string;
+};
+
+export default function App() {
+  const [screen, setScreen] = useState<Screen>("dashboard");
+  const [editingSection, setEditingSection] = useState<EditingSection>(null);
+  const [importedDocument, setImportedDocument] = useState<ImportedDocument | null>(null);
+	
+async function openDoctorBrief() {
+  try {
+    const sourceValue =
+      observationSource || actionSource || medicationSource || "Document importé";
+
+    const response = await fetch("http://localhost:4000/shares", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        documentType,
+        actionTitle,
+        actionDescription,
+        observationTitle,
+        observationDescription,
+        medicationName,
+        medicationDosage,
+        source: sourceValue,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error("Impossible de créer le partage");
+    }
+
+    const data = await response.json();
+
+    const doctorUrl =
+      data.url || `http://localhost:3000?shareId=${data.shareId}`;
+
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      window.open(doctorUrl, "_blank");
+      return;
+    }
+
+    Linking.openURL(doctorUrl);
+  } catch (error) {
+    console.error(error);
+    Alert.alert(
+      "Erreur",
+      "Impossible de créer le partage. Vérifie que l’API tourne sur localhost:4000."
+    );
+  }
+}
+
+  const [actions, setActions] = useState<MedicalAction[]>([
+    {
+      id: "prise-de-sang",
+      title: "Prise de sang à prévoir",
+      description: "Bilan rénal + potassium.",
+      source: "Compte rendu — 12/03/2026",
+    },
+  ]);
+
+  const [medications, setMedications] = useState<Medication[]>([]);
+  const [observations, setObservations] = useState<Observation[]>([]);
+
+  const [documentType, setDocumentType] = useState("Ordonnance");
+
+  const [actionTitle, setActionTitle] = useState("Radiographie du genou droit");
+  const [actionDescription, setActionDescription] = useState(
+    "Examen détecté depuis une ordonnance importée."
+  );
+  const [actionSource, setActionSource] = useState("Ordonnance — 15/05/2026");
+
+  const [hasMedication, setHasMedication] = useState(true);
+  const [medicationName, setMedicationName] = useState("Ramipril");
+  const [medicationDosage, setMedicationDosage] = useState("2,5 mg");
+  const [medicationInstructions, setMedicationInstructions] = useState(
+    "1 comprimé le matin — à confirmer avec le médecin."
+  );
+  const [medicationSource, setMedicationSource] = useState("Ordonnance — 19/03/2026");
+
+  const [hasObservation, setHasObservation] = useState(false);
+  const [observationTitle, setObservationTitle] = useState("");
+  const [observationDescription, setObservationDescription] = useState("");
+  const [observationSource, setObservationSource] = useState("");
+
+  function applyMockExtractionForFile(fileName: string) {
+    const normalizedName = fileName.toLowerCase();
+
+    const looksLikeBiology =
+      normalizedName.includes("analyse") ||
+      normalizedName.includes("biologie") ||
+      normalizedName.includes("biologique") ||
+      normalizedName.includes("bilan");
+
+    setEditingSection(null);
+
+    if (looksLikeBiology) {
+      setDocumentType("Analyse biologique");
+
+      setActionTitle("Discuter le bilan rénal + potassium avec le médecin");
+      setActionDescription(
+        "Analyse détectée comme bilan de suivi après introduction d’un traitement. Les résultats doivent être interprétés par un professionnel."
+      );
+      setActionSource("Analyse biologique — 15/05/2026");
+
+      setHasMedication(false);
+      setMedicationName("");
+      setMedicationDosage("");
+      setMedicationInstructions("");
+      setMedicationSource("");
+
+      setHasObservation(true);
+      setObservationTitle("Glycémie à jeun limite haute");
+      setObservationDescription(
+        "Point de vigilance détecté dans le compte rendu. À recontrôler ou contextualiser avec le médecin. Ceci n’est pas un diagnostic."
+      );
+      setObservationSource("Analyse biologique — 15/05/2026");
+
+      return;
+    }
+
+    setDocumentType("Ordonnance");
+
+    setActionTitle("Radiographie du genou droit");
+    setActionDescription("Examen détecté depuis une ordonnance importée.");
+    setActionSource("Ordonnance — 15/05/2026");
+
+    setHasMedication(true);
+    setMedicationName("Ramipril");
+    setMedicationDosage("2,5 mg");
+    setMedicationInstructions("1 comprimé le matin — à confirmer avec le médecin.");
+    setMedicationSource("Ordonnance — 19/03/2026");
+
+    setHasObservation(false);
+    setObservationTitle("");
+    setObservationDescription("");
+    setObservationSource("");
+  }
+
+  async function startMockImport() {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ["application/pdf", "image/*"],
+      multiple: false,
+      copyToCacheDirectory: true,
+    });
+
+    if (result.canceled || !result.assets?.[0]) {
+      return;
+    }
+
+    const file = result.assets[0];
+
+    setImportedDocument({
+      name: file.name,
+      uri: file.uri,
+      mimeType: file.mimeType,
+      size: file.size,
+    });
+
+    applyMockExtractionForFile(file.name);
+
+    setScreen("analyzing");
+
+    setTimeout(() => {
+      setScreen("review");
+    }, 1200);
+  }
+
+  function confirmExtraction() {
+    if (actionTitle.trim().length > 0) {
+      setActions((currentActions) => [
+        {
+          id: `action-${Date.now()}`,
+          title: actionTitle,
+          description: actionDescription,
+          source: actionSource,
+        },
+        ...currentActions,
+      ]);
+    }
+
+    if (hasMedication && medicationName.trim().length > 0) {
+      setMedications((currentMedications) => [
+        {
+          id: `medication-${Date.now()}`,
+          name: medicationName,
+          dosage: medicationDosage,
+          instructions: medicationInstructions,
+          source: medicationSource,
+        },
+        ...currentMedications,
+      ]);
+    }
+
+    if (hasObservation && observationTitle.trim().length > 0) {
+      setObservations((currentObservations) => [
+        {
+          id: `observation-${Date.now()}`,
+          title: observationTitle,
+          description: observationDescription,
+          source: observationSource,
+        },
+        ...currentObservations,
+      ]);
+    }
+
+    setEditingSection(null);
+    setScreen("dashboard");
+  }
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <StatusBar style="dark" />
+
+      {screen === "dashboard" && (
+        <ScrollView contentContainerStyle={styles.container}>
+          <View style={styles.header}>
+            <Text style={styles.kicker}>Continuum Santé</Text>
+            <Text style={styles.title}>Votre carnet de santé intelligent</Text>
+            <Text style={styles.subtitle}>
+              Importez vos documents médicaux, transformez-les en actions, puis
+              partagez une synthèse claire avec un professionnel.
+            </Text>
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>À faire</Text>
+
+            {actions.map((action) => (
+              <View key={action.id} style={styles.actionItem}>
+                <Text style={styles.actionTitle}>{action.title}</Text>
+                <Text style={styles.actionDescription}>{action.description}</Text>
+                <Text style={styles.source}>Source : {action.source}</Text>
+              </View>
+            ))}
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Traitements</Text>
+
+            {medications.length === 0 ? (
+              <Text style={styles.emptyText}>Aucun traitement confirmé pour le moment.</Text>
+            ) : (
+              medications.map((medication) => (
+                <View key={medication.id} style={styles.actionItem}>
+                  <Text style={styles.actionTitle}>
+                    {medication.name} — {medication.dosage}
+                  </Text>
+                  <Text style={styles.actionDescription}>{medication.instructions}</Text>
+                  <Text style={styles.source}>Source : {medication.source}</Text>
+                </View>
+              ))
+            )}
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Points de vigilance</Text>
+
+            {observations.length === 0 ? (
+              <Text style={styles.emptyText}>Aucun point de vigilance détecté pour le moment.</Text>
+            ) : (
+              observations.map((observation) => (
+                <View key={observation.id} style={styles.actionItem}>
+                  <Text style={styles.actionTitle}>{observation.title}</Text>
+                  <Text style={styles.actionDescription}>{observation.description}</Text>
+                  <Text style={styles.source}>Source : {observation.source}</Text>
+                </View>
+              ))
+            )}
+          </View>
+
+          <TouchableOpacity style={styles.primaryButton} onPress={startMockImport}>
+            <Text style={styles.primaryButtonText}>Importer un document</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={() => setScreen("share")}
+          >
+            <Text style={styles.secondaryButtonText}>Partager avec un médecin</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      )}
+
+      {screen === "analyzing" && (
+        <View style={styles.centeredContainer}>
+          <Text style={styles.kicker}>Analyse du document</Text>
+          <Text style={styles.title}>Lecture en cours…</Text>
+          <Text style={styles.subtitle}>
+            Nous simulons ici l’extraction du document importé.
+          </Text>
+
+          {importedDocument && (
+            <View style={styles.filePreview}>
+              <Text style={styles.fileLabel}>Document sélectionné</Text>
+              <Text style={styles.fileName}>{importedDocument.name}</Text>
+            </View>
+          )}
+        </View>
+      )}
+
+      {screen === "review" && (
+        <ScrollView contentContainerStyle={styles.container}>
+          <View style={styles.header}>
+            <Text style={styles.kicker}>Document analysé</Text>
+            <Text style={styles.title}>Informations détectées</Text>
+            <Text style={styles.subtitle}>
+              Vérifiez les éléments extraits. Modifiez uniquement si quelque chose est incorrect.
+            </Text>
+          </View>
+
+          {importedDocument && (
+            <View style={styles.filePreview}>
+              <Text style={styles.fileLabel}>Document importé</Text>
+              <Text style={styles.fileName}>{importedDocument.name}</Text>
+            </View>
+          )}
+
+          <View style={styles.card}>
+            <View style={styles.cardHeaderRow}>
+              <Text style={styles.cardTitleNoMargin}>Type de document</Text>
+              <EditButton
+                isEditing={editingSection === "document"}
+                onPress={() =>
+                  setEditingSection(editingSection === "document" ? null : "document")
+                }
+              />
+            </View>
+
+            {editingSection === "document" ? (
+              <TextInput
+                style={styles.input}
+                value={documentType}
+                onChangeText={setDocumentType}
+              />
+            ) : (
+              <Text style={styles.actionTitle}>{documentType}</Text>
+            )}
+
+            <Text style={styles.source}>Confiance : 92 %</Text>
+          </View>
+
+          <EditableCard
+            title="Action détectée"
+            editing={editingSection === "action"}
+            onToggleEdit={() =>
+              setEditingSection(editingSection === "action" ? null : "action")
+            }
+            fields={
+              editingSection === "action" ? (
+                <>
+                  <Text style={styles.label}>Titre</Text>
+                  <TextInput style={styles.input} value={actionTitle} onChangeText={setActionTitle} />
+
+                  <Text style={styles.label}>Description</Text>
+                  <TextInput
+                    style={[styles.input, styles.multilineInput]}
+                    value={actionDescription}
+                    onChangeText={setActionDescription}
+                    multiline
+                  />
+
+                  <Text style={styles.label}>Source</Text>
+                  <TextInput style={styles.input} value={actionSource} onChangeText={setActionSource} />
+                </>
+              ) : (
+                <>
+                  <Text style={styles.actionTitle}>{actionTitle}</Text>
+                  <Text style={styles.actionDescription}>{actionDescription}</Text>
+                  <Text style={styles.source}>Source : {actionSource}</Text>
+                </>
+              )
+            }
+          />
+
+          {hasMedication && (
+            <EditableCard
+              title="Traitement détecté"
+              editing={editingSection === "medication"}
+              onToggleEdit={() =>
+                setEditingSection(editingSection === "medication" ? null : "medication")
+              }
+              fields={
+                editingSection === "medication" ? (
+                  <>
+                    <Text style={styles.label}>Nom du médicament</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={medicationName}
+                      onChangeText={setMedicationName}
+                    />
+
+                    <Text style={styles.label}>Dosage</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={medicationDosage}
+                      onChangeText={setMedicationDosage}
+                    />
+
+                    <Text style={styles.label}>Instructions</Text>
+                    <TextInput
+                      style={[styles.input, styles.multilineInput]}
+                      value={medicationInstructions}
+                      onChangeText={setMedicationInstructions}
+                      multiline
+                    />
+
+                    <Text style={styles.label}>Source</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={medicationSource}
+                      onChangeText={setMedicationSource}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.actionTitle}>
+                      {medicationName} — {medicationDosage}
+                    </Text>
+                    <Text style={styles.actionDescription}>{medicationInstructions}</Text>
+                    <Text style={styles.source}>Source : {medicationSource}</Text>
+                  </>
+                )
+              }
+            />
+          )}
+
+          {hasObservation && (
+            <EditableCard
+              title="Point de vigilance détecté"
+              editing={editingSection === "observation"}
+              onToggleEdit={() =>
+                setEditingSection(editingSection === "observation" ? null : "observation")
+              }
+              fields={
+                editingSection === "observation" ? (
+                  <>
+                    <Text style={styles.label}>Titre</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={observationTitle}
+                      onChangeText={setObservationTitle}
+                    />
+
+                    <Text style={styles.label}>Description</Text>
+                    <TextInput
+                      style={[styles.input, styles.multilineInput]}
+                      value={observationDescription}
+                      onChangeText={setObservationDescription}
+                      multiline
+                    />
+
+                    <Text style={styles.label}>Source</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={observationSource}
+                      onChangeText={setObservationSource}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.actionTitle}>{observationTitle}</Text>
+                    <Text style={styles.actionDescription}>{observationDescription}</Text>
+                    <Text style={styles.source}>Source : {observationSource}</Text>
+                  </>
+                )
+              }
+            />
+          )}
+
+          <TouchableOpacity style={styles.primaryButton} onPress={confirmExtraction}>
+            <Text style={styles.primaryButtonText}>Confirmer et ajouter au carnet</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={() => setScreen("dashboard")}
+          >
+            <Text style={styles.secondaryButtonText}>Annuler</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      )}
+
+      {screen === "share" && (
+        <ScrollView contentContainerStyle={styles.container}>
+          <View style={styles.header}>
+            <Text style={styles.kicker}>Partage temporaire</Text>
+            <Text style={styles.title}>Partager avec un médecin</Text>
+            <Text style={styles.subtitle}>
+              Générez un accès temporaire au brief patient. Dans le MVP, ce code est simulé.
+            </Text>
+          </View>
+
+          <View style={styles.shareCard}>
+            <Text style={styles.shareLabel}>Code de partage</Text>
+            <Text style={styles.shareCode}>739421</Text>
+            <Text style={styles.shareSource}>Expire dans 24 heures</Text>
+          </View>
+		<TouchableOpacity style={styles.primaryButton} onPress={openDoctorBrief}>
+		  <Text style={styles.primaryButtonText}>Ouvrir le brief médecin</Text>
+		</TouchableOpacity>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Données partagées</Text>
+            <Text style={styles.item}>• Résumé médical</Text>
+            <Text style={styles.item}>• Actions en attente</Text>
+            <Text style={styles.item}>• Traitements confirmés</Text>
+            <Text style={styles.item}>• Points de vigilance</Text>
+            <Text style={styles.item}>• Documents sources sélectionnés</Text>
+          </View>
+
+          <TouchableOpacity style={styles.primaryButton} onPress={() => setScreen("dashboard")}>
+            <Text style={styles.primaryButtonText}>Retour au carnet</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      )}
+    </SafeAreaView>
+  );
+}
+
+function EditableCard({
+  title,
+  editing,
+  onToggleEdit,
+  fields,
+}: {
+  title: string;
+  editing: boolean;
+  onToggleEdit: () => void;
+  fields: React.ReactNode;
+}) {
+  return (
+    <View style={styles.card}>
+      <View style={styles.cardHeaderRow}>
+        <Text style={styles.cardTitleNoMargin}>{title}</Text>
+        <EditButton isEditing={editing} onPress={onToggleEdit} />
+      </View>
+      {fields}
+    </View>
+  );
+}
+
+function EditButton({
+  isEditing,
+  onPress,
+}: {
+  isEditing: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity style={styles.editButton} onPress={onPress}>
+      <Text style={styles.editButtonText}>{isEditing ? "Terminer" : "✎ Modifier"}</Text>
+    </TouchableOpacity>
+  );
+}
+
+const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: "#F4F7FB" },
+  container: { padding: 24, gap: 18 },
+  centeredContainer: {
+    flex: 1,
+    padding: 24,
+    justifyContent: "center",
+    backgroundColor: "#F4F7FB",
+  },
+  header: { marginTop: 24, marginBottom: 8 },
+  kicker: { fontSize: 14, fontWeight: "700", color: "#4776A8", marginBottom: 8 },
+  title: { fontSize: 32, lineHeight: 38, fontWeight: "800", color: "#172033" },
+  subtitle: { marginTop: 12, fontSize: 16, lineHeight: 23, color: "#536179" },
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    padding: 18,
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 14,
+    elevation: 3,
+  },
+  cardHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 14,
+    gap: 12,
+  },
+  cardTitle: { fontSize: 18, fontWeight: "800", color: "#172033", marginBottom: 14 },
+  cardTitleNoMargin: { fontSize: 18, fontWeight: "800", color: "#172033", flex: 1 },
+  editButton: {
+    backgroundColor: "#E5EDF7",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  editButtonText: { color: "#172033", fontSize: 13, fontWeight: "800" },
+  actionItem: {
+    paddingVertical: 10,
+    borderBottomColor: "#E8EDF5",
+    borderBottomWidth: 1,
+  },
+  actionTitle: { fontSize: 16, fontWeight: "800", color: "#172033" },
+  actionDescription: { marginTop: 4, fontSize: 14, color: "#536179" },
+  source: { marginTop: 6, fontSize: 13, color: "#7C879A" },
+  emptyText: { fontSize: 14, color: "#7C879A" },
+  item: { fontSize: 15, color: "#172033", marginBottom: 8 },
+  label: {
+    marginTop: 12,
+    marginBottom: 6,
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#536179",
+  },
+  input: {
+    backgroundColor: "#F4F7FB",
+    borderWidth: 1,
+    borderColor: "#DDE6F2",
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: "#172033",
+  },
+  multilineInput: { minHeight: 80, textAlignVertical: "top" },
+  primaryButton: {
+    backgroundColor: "#172033",
+    borderRadius: 18,
+    paddingVertical: 16,
+    alignItems: "center",
+  },
+  primaryButtonText: { color: "#FFFFFF", fontWeight: "800", fontSize: 16 },
+  secondaryButton: {
+    backgroundColor: "#E5EDF7",
+    borderRadius: 18,
+    paddingVertical: 16,
+    alignItems: "center",
+  },
+  secondaryButtonText: { color: "#172033", fontWeight: "800", fontSize: 16 },
+  shareCard: {
+    backgroundColor: "#172033",
+    borderRadius: 28,
+    padding: 24,
+    alignItems: "center",
+  },
+  shareLabel: { color: "#B7C6DA", fontSize: 14, fontWeight: "700" },
+  shareCode: {
+    marginTop: 10,
+    color: "#FFFFFF",
+    fontSize: 42,
+    fontWeight: "900",
+    letterSpacing: 6,
+  },
+  shareSource: { marginTop: 8, fontSize: 13, color: "#B7C6DA" },
+  filePreview: {
+    backgroundColor: "#E5EDF7",
+    borderRadius: 20,
+    padding: 16,
+  },
+  fileLabel: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#4776A8",
+    marginBottom: 4,
+  },
+  fileName: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#172033",
+  },
+});
