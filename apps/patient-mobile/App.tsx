@@ -62,6 +62,8 @@ type ApiExtraction = {
   observationDescription: string;
   observationSource: string;
   extractedTextPreview: string;
+  documentId: string;
+  filename: string;
 };
 
 type PatientShare = {
@@ -82,7 +84,7 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>("dashboard");
   const [editingSection, setEditingSection] = useState<EditingSection>(null);
   const [importedDocument, setImportedDocument] = useState<ImportedDocument | null>(null);
-
+  const [currentDocumentId, setCurrentDocumentId] = useState<string | null>(null);
   const [currentShareId, setCurrentShareId] = useState<string | null>(null);
   const [accessCount, setAccessCount] = useState<number | null>(null);
   const [latestAccessAt, setLatestAccessAt] = useState<string | null>(null);
@@ -137,6 +139,8 @@ export default function App() {
   }
 
   function applyExtraction(extraction: ApiExtraction) {
+	setCurrentDocumentId(extraction.documentId);
+
     setDocumentType(extraction.documentType);
     setDocumentConfidence(extraction.confidence);
 
@@ -322,6 +326,7 @@ export default function App() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+		  documentId: currentDocumentId,
           documentType,
           actionTitle,
           actionDescription,

@@ -7,6 +7,26 @@ datasource db {
   url      = "file:./dev.db"
 }
 
+model Document {
+  id                     String   @id
+  filename               String
+  mimeType               String?
+  sizeBytes              Int?
+  documentType           String
+  confidence             Float
+  extractedText          String
+  actionTitle            String
+  actionDescription      String
+  observationTitle       String?
+  observationDescription String?
+  medicationName         String?
+  medicationDosage       String?
+  source                 String
+  createdAt              DateTime @default(now())
+
+  shares                 SharedBrief[]
+}
+
 model SharedBrief {
   id                     String      @id
   code                   String
@@ -21,6 +41,9 @@ model SharedBrief {
   createdAt              DateTime    @default(now())
   expiresAt              DateTime
   revokedAt              DateTime?
+
+  documentId             String?
+  document               Document?   @relation(fields: [documentId], references: [id], onDelete: SetNull)
 
   accessLogs             AccessLog[]
 }

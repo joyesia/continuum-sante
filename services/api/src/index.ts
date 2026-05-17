@@ -24,9 +24,12 @@ type SharedBrief = {
   source: string;
   createdAt: string;
   expiresAt: string;
+  documentId?: string;
 };
 
 type ExtractedMedicalData = {
+  documentId: string;
+  filename: string;
   documentType: string;
   confidence: number;
   actionTitle: string;
@@ -85,8 +88,6 @@ server.post("/documents/extract", async (request, reply) => {
   if (uploadedFile.mimetype === "application/pdf") {
     const parsedPdf = await pdfParse(fileBuffer);
     extractedText = parsedPdf.text || "";
-  } else {
-    extractedText = "";
   }
 
   const extraction = extractMedicalDataFromText({
@@ -94,8 +95,34 @@ server.post("/documents/extract", async (request, reply) => {
     extractedText,
   });
 
-  return reply.send(extraction);
+  const documentId = crypto.randomUUID();
+
+  const document = await prisma.document.create({
+    data: {
+      id: documentId,
+      filename,
+      mimeType: uploadedFile.mimetype,
+      sizeBytes: fileBuffer.byteLength,
+      documentType: extraction.documentType,
+      confidence: extraction.confidence,
+      extractedText,
+      actionTitle: extraction.actionTitle,
+      actionDescription: extraction.actionDescription,
+      observationTitle: extraction.observationTitle || "",
+      observationDescription: extraction.observationDescription || "",
+      medicationName: extraction.medicationName || "",
+      medicationDosage: extraction.medicationDosage || "",
+      source: extraction.actionSource || filename,
+    },
+  });
+
+  return reply.send({
+    ...extraction,
+    documentId: document.id,
+    filename: document.filename,
+  });
 });
+
 server.get("/shares", async () => {
   const shares = await prisma.sharedBrief.findMany({
     orderBy: {
@@ -151,6 +178,7 @@ server.post("/shares", async (request, reply) => {
       medicationDosage: body.medicationDosage || "",
       source: body.source || "Document importé",
       expiresAt,
+	  documentId: body.documentId || undefined,
     },
   });
 
