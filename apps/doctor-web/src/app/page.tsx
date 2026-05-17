@@ -38,9 +38,19 @@ const fallbackBrief: SharedBrief = {
   expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
 };
 
-async function getSharedBrief(shareId?: string): Promise<SharedBrief | null> {
+type ErrorStatus = "not_found" | "revoked" | "expired" | "api_error";
+
+type BriefFetchResult =
+  | { status: "ok"; brief: SharedBrief }
+  | { status: "demo"; brief: SharedBrief }
+  | { status: ErrorStatus };
+
+async function getSharedBrief(shareId?: string): Promise<BriefFetchResult> {
   if (!shareId) {
-    return fallbackBrief;
+    return {
+      status: "demo",
+      brief: fallbackBrief,
+    };
   }
 
   try {
@@ -48,44 +58,97 @@ async function getSharedBrief(shareId?: string): Promise<SharedBrief | null> {
       cache: "no-store",
     });
 
-    if (!response.ok) {
-      return null;
+    if (response.status === 403) {
+      return { status: "revoked" };
     }
 
-    return response.json();
+    if (response.status === 410) {
+      return { status: "expired" };
+    }
+
+    if (response.status === 404) {
+      return { status: "not_found" };
+    }
+
+    if (!response.ok) {
+      return { status: "api_error" };
+    }
+
+    const brief = (await response.json()) as SharedBrief;
+
+    return {
+      status: "ok",
+      brief,
+    };
   } catch {
-    return null;
+    return { status: "api_error" };
   }
+}
+
+function ErrorState({ status }: { status: ErrorStatus }) {
+  const messages: Record<
+    ErrorStatus,
+    {
+      title: string;
+      description: string;
+    }
+  > = {
+    revoked: {
+      title: "Accès révoqué",
+      description:
+        "Ce lien de partage a été désactivé par le patient. Les données ne sont plus accessibles.",
+    },
+    expired: {
+      title: "Lien expiré",
+      description:
+        "Ce lien de partage a expiré. Demandez au patient de générer un nouvel accès.",
+    },
+    not_found: {
+      title: "Brief introuvable",
+      description: "Ce partage n’existe pas ou n’est plus disponible.",
+    },
+    api_error: {
+      title: "API indisponible",
+      description:
+        "Impossible de récupérer le brief patient. Vérifie que l’API locale tourne sur localhost:4000.",
+    },
+  };
+
+  const message = messages[status];
+
+  return (
+    <main className="min-h-screen bg-slate-100 px-8 py-10 text-slate-900">
+      <section className="mx-auto max-w-3xl rounded-3xl bg-white p-8 shadow-sm">
+        <p className="text-sm font-bold text-blue-700">
+          Continuum Santé — Espace professionnel
+        </p>
+
+        <h1 className="mt-3 text-3xl font-extrabold">{message.title}</h1>
+
+        <p className="mt-3 text-slate-600">{message.description}</p>
+
+        {status === "revoked" && (
+          <div className="mt-6 rounded-2xl bg-red-50 p-4 text-sm text-red-900">
+            Le patient garde le contrôle de ses données et peut retirer l’accès
+            à tout moment.
+          </div>
+        )}
+      </section>
+    </main>
+  );
 }
 
 export default async function Home({ searchParams }: PageProps) {
   const params = await searchParams;
   const shareId = params?.shareId;
 
-  const brief = await getSharedBrief(shareId);
+  const result = await getSharedBrief(shareId);
 
-  if (!brief) {
-    return (
-      <main className="min-h-screen bg-slate-100 px-8 py-10 text-slate-900">
-        <section className="mx-auto max-w-3xl rounded-3xl bg-white p-8 shadow-sm">
-          <p className="text-sm font-bold text-blue-700">
-            Continuum Santé — Espace professionnel
-          </p>
-          <h1 className="mt-3 text-3xl font-extrabold">
-            Brief introuvable
-          </h1>
-          <p className="mt-3 text-slate-600">
-            Le partage n’existe pas, a expiré, ou l’API locale ne répond pas.
-          </p>
-          <p className="mt-5 rounded-2xl bg-slate-100 p-4 text-sm text-slate-600">
-            Vérifie que l’API tourne sur{" "}
-            <strong>http://localhost:4000</strong>.
-          </p>
-        </section>
-      </main>
-    );
+  if (result.status !== "ok" && result.status !== "demo") {
+    return <ErrorState status={result.status} />;
   }
 
+  const brief = result.brief;
   const hasObservation = Boolean(brief.observationTitle);
   const hasMedication = Boolean(brief.medicationName);
 
@@ -157,8 +220,7 @@ export default async function Home({ searchParams }: PageProps) {
                   </p>
                   <p className="mt-1 text-blue-900">
                     {brief.medicationName}{" "}
-                    {brief.medicationDosage &&
-                      `— ${brief.medicationDosage}`}
+                    {brief.medicationDosage && `— ${brief.medicationDosage}`}
                   </p>
                 </div>
               )}
