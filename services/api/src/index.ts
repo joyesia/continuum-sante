@@ -96,6 +96,36 @@ server.post("/documents/extract", async (request, reply) => {
 
   return reply.send(extraction);
 });
+server.get("/shares", async () => {
+  const shares = await prisma.sharedBrief.findMany({
+    orderBy: {
+      createdAt: "desc",
+    },
+    include: {
+      accessLogs: true,
+    },
+  });
+
+  return shares.map((share) => {
+    const now = Date.now();
+    const isRevoked = Boolean(share.revokedAt);
+    const isExpired = share.expiresAt.getTime() < now;
+
+    return {
+      id: share.id,
+      code: share.code,
+      documentType: share.documentType,
+      actionTitle: share.actionTitle,
+      source: share.source,
+      createdAt: share.createdAt,
+      expiresAt: share.expiresAt,
+      revokedAt: share.revokedAt,
+      accessCount: share.accessLogs.length,
+      latestAccessAt: share.accessLogs[0]?.openedAt ?? null,
+      status: isRevoked ? "revoked" : isExpired ? "expired" : "active",
+    };
+  });
+});
 
 server.post("/shares", async (request, reply) => {
   const body = request.body as Partial<SharedBrief>;

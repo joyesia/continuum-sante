@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import * as DocumentPicker from "expo-document-picker";
 import {
   Alert,
-  SafeAreaView,
-  ScrollView,
   Linking,
   Platform,
+  SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
-type Screen = "dashboard" | "analyzing" | "review" | "share";
+type Screen = "dashboard" | "analyzing" | "review" | "share" | "shares";
 type EditingSection = null | "document" | "action" | "medication" | "observation";
 
 type ImportedDocument = {
@@ -46,169 +46,52 @@ type Observation = {
   source: string;
 };
 
+type ApiExtraction = {
+  documentType: string;
+  confidence: number;
+  actionTitle: string;
+  actionDescription: string;
+  actionSource: string;
+  hasMedication: boolean;
+  medicationName: string;
+  medicationDosage: string;
+  medicationInstructions: string;
+  medicationSource: string;
+  hasObservation: boolean;
+  observationTitle: string;
+  observationDescription: string;
+  observationSource: string;
+  extractedTextPreview: string;
+};
+
+type PatientShare = {
+  id: string;
+  code: string;
+  documentType: string;
+  actionTitle: string;
+  source: string;
+  createdAt: string;
+  expiresAt: string;
+  revokedAt?: string | null;
+  accessCount: number;
+  latestAccessAt?: string | null;
+  status: "active" | "revoked" | "expired";
+};
+
 export default function App() {
   const [screen, setScreen] = useState<Screen>("dashboard");
   const [editingSection, setEditingSection] = useState<EditingSection>(null);
   const [importedDocument, setImportedDocument] = useState<ImportedDocument | null>(null);
+
   const [currentShareId, setCurrentShareId] = useState<string | null>(null);
   const [accessCount, setAccessCount] = useState<number | null>(null);
   const [latestAccessAt, setLatestAccessAt] = useState<string | null>(null);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [revokedAt, setRevokedAt] = useState<string | null>(null);
   const [isRevokingShare, setIsRevokingShare] = useState(false);
-	
-async function openDoctorBrief() {
-  let doctorWindow: Window | null = null;
 
-  if (Platform.OS === "web" && typeof window !== "undefined") {
-    doctorWindow = window.open("", "_blank");
-  }
-
-  try {
-    const sourceValue =
-      observationSource || actionSource || medicationSource || "Document importé";
-
-    const response = await fetch("http://localhost:4000/shares", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        documentType,
-        actionTitle,
-        actionDescription,
-        observationTitle,
-        observationDescription,
-        medicationName,
-        medicationDosage,
-        source: sourceValue,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error("Impossible de créer le partage");
-    }
-
-    const data = await response.json();
-
-    setCurrentShareId(data.shareId);
-    setAccessCount(null);
-    setLatestAccessAt(null);
-    setRevokedAt(null);
-
-    const doctorUrl = `http://localhost:3000/?shareId=${data.shareId}`;
-
-    if (Platform.OS === "web" && doctorWindow) {
-      doctorWindow.location.href = doctorUrl;
-      return;
-    }
-
-    Linking.openURL(doctorUrl);
-  } catch (error) {
-    console.error(error);
-
-    if (doctorWindow) {
-      doctorWindow.close();
-    }
-
-    if (Platform.OS === "web" && typeof window !== "undefined") {
-      window.alert(
-        "Impossible de créer le partage. Vérifie que l’API tourne sur localhost:4000."
-      );
-      return;
-    }
-
-    Alert.alert(
-      "Erreur",
-      "Impossible de créer le partage. Vérifie que l’API tourne sur localhost:4000."
-    );
-  }
-}
-
-async function refreshAccessLogs() {
-  if (!currentShareId) {
-    Alert.alert(
-      "Aucun partage",
-      "Ouvre d’abord un brief médecin pour générer un lien de partage."
-    );
-    return;
-  }
-
-  try {
-    setIsLoadingLogs(true);
-
-    const response = await fetch(
-      `http://localhost:4000/shares/${currentShareId}/access-logs`
-    );
-
-    if (!response.ok) {
-      throw new Error("Impossible de récupérer les logs d’accès");
-    }
-
-    const data = await response.json();
-
-    setAccessCount(data.count);
-    setLatestAccessAt(data.logs[0]?.openedAt ?? null);
-  } catch (error) {
-    console.error(error);
-
-    if (Platform.OS === "web" && typeof window !== "undefined") {
-      window.alert("Impossible de récupérer l’historique d’accès.");
-      return;
-    }
-
-    Alert.alert("Erreur", "Impossible de récupérer l’historique d’accès.");
-  } finally {
-    setIsLoadingLogs(false);
-  }
-}
-
-async function revokeCurrentShare() {
-  if (!currentShareId) {
-    Alert.alert(
-      "Aucun partage",
-      "Ouvre d’abord un brief médecin pour générer un lien de partage."
-    );
-    return;
-  }
-
-  try {
-    setIsRevokingShare(true);
-
-    const response = await fetch(
-      `http://localhost:4000/shares/${currentShareId}/revoke`,
-      {
-        method: "PATCH",
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error("Impossible de révoquer le partage");
-    }
-
-    const data = await response.json();
-
-    setRevokedAt(data.revokedAt ?? new Date().toISOString());
-
-    if (Platform.OS === "web" && typeof window !== "undefined") {
-      window.alert("Accès révoqué. Le lien médecin n’est plus disponible.");
-      return;
-    }
-
-    Alert.alert("Accès révoqué", "Le lien médecin n’est plus disponible.");
-  } catch (error) {
-    console.error(error);
-
-    if (Platform.OS === "web" && typeof window !== "undefined") {
-      window.alert("Impossible de révoquer le partage.");
-      return;
-    }
-
-    Alert.alert("Erreur", "Impossible de révoquer le partage.");
-  } finally {
-    setIsRevokingShare(false);
-  }
-}
+  const [shares, setShares] = useState<PatientShare[]>([]);
+  const [isLoadingShares, setIsLoadingShares] = useState(false);
 
   const [actions, setActions] = useState<MedicalAction[]>([
     {
@@ -223,6 +106,7 @@ async function revokeCurrentShare() {
   const [observations, setObservations] = useState<Observation[]>([]);
 
   const [documentType, setDocumentType] = useState("Ordonnance");
+  const [documentConfidence, setDocumentConfidence] = useState(0.92);
 
   const [actionTitle, setActionTitle] = useState("Radiographie du genou droit");
   const [actionDescription, setActionDescription] = useState(
@@ -243,7 +127,38 @@ async function revokeCurrentShare() {
   const [observationDescription, setObservationDescription] = useState("");
   const [observationSource, setObservationSource] = useState("");
 
-  function applyMockExtractionForFile(fileName: string) {
+  function showAlert(title: string, message: string) {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      window.alert(message);
+      return;
+    }
+
+    Alert.alert(title, message);
+  }
+
+  function applyExtraction(extraction: ApiExtraction) {
+    setDocumentType(extraction.documentType);
+    setDocumentConfidence(extraction.confidence);
+
+    setActionTitle(extraction.actionTitle);
+    setActionDescription(extraction.actionDescription);
+    setActionSource(extraction.actionSource);
+
+    setHasMedication(extraction.hasMedication);
+    setMedicationName(extraction.medicationName);
+    setMedicationDosage(extraction.medicationDosage);
+    setMedicationInstructions(extraction.medicationInstructions);
+    setMedicationSource(extraction.medicationSource);
+
+    setHasObservation(extraction.hasObservation);
+    setObservationTitle(extraction.observationTitle);
+    setObservationDescription(extraction.observationDescription);
+    setObservationSource(extraction.observationSource);
+
+    setEditingSection(null);
+  }
+
+  function applyFallbackExtractionForFile(fileName: string) {
     const normalizedName = fileName.toLowerCase();
 
     const looksLikeBiology =
@@ -256,6 +171,7 @@ async function revokeCurrentShare() {
 
     if (looksLikeBiology) {
       setDocumentType("Analyse biologique");
+      setDocumentConfidence(0.78);
 
       setActionTitle("Discuter le bilan rénal + potassium avec le médecin");
       setActionDescription(
@@ -280,6 +196,7 @@ async function revokeCurrentShare() {
     }
 
     setDocumentType("Ordonnance");
+    setDocumentConfidence(0.74);
 
     setActionTitle("Radiographie du genou droit");
     setActionDescription("Examen détecté depuis une ordonnance importée.");
@@ -297,7 +214,7 @@ async function revokeCurrentShare() {
     setObservationSource("");
   }
 
-  async function startMockImport() {
+  async function startDocumentImport() {
     const result = await DocumentPicker.getDocumentAsync({
       type: ["application/pdf", "image/*"],
       multiple: false,
@@ -317,13 +234,33 @@ async function revokeCurrentShare() {
       size: file.size,
     });
 
-    applyMockExtractionForFile(file.name);
-
     setScreen("analyzing");
 
-    setTimeout(() => {
+    try {
+      const fileResponse = await fetch(file.uri);
+      const fileBlob = await fileResponse.blob();
+
+      const formData = new FormData();
+      formData.append("file", fileBlob, file.name);
+
+      const response = await fetch("http://localhost:4000/documents/extract", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error("Extraction API failed");
+      }
+
+      const extraction = (await response.json()) as ApiExtraction;
+
+      applyExtraction(extraction);
       setScreen("review");
-    }, 1200);
+    } catch (error) {
+      console.error(error);
+      applyFallbackExtractionForFile(file.name);
+      setScreen("review");
+    }
   }
 
   function confirmExtraction() {
@@ -366,6 +303,181 @@ async function revokeCurrentShare() {
 
     setEditingSection(null);
     setScreen("dashboard");
+  }
+
+  async function openDoctorBrief() {
+    let doctorWindow: Window | null = null;
+
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      doctorWindow = window.open("", "_blank");
+    }
+
+    try {
+      const sourceValue =
+        observationSource || actionSource || medicationSource || "Document importé";
+
+      const response = await fetch("http://localhost:4000/shares", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          documentType,
+          actionTitle,
+          actionDescription,
+          observationTitle,
+          observationDescription,
+          medicationName,
+          medicationDosage,
+          source: sourceValue,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Impossible de créer le partage");
+      }
+
+      const data = await response.json();
+
+      setCurrentShareId(data.shareId);
+      setAccessCount(null);
+      setLatestAccessAt(null);
+      setRevokedAt(null);
+
+      const doctorUrl = `http://localhost:3000/?shareId=${data.shareId}`;
+
+      if (Platform.OS === "web" && doctorWindow) {
+        doctorWindow.location.href = doctorUrl;
+        return;
+      }
+
+      Linking.openURL(doctorUrl);
+    } catch (error) {
+      console.error(error);
+
+      if (doctorWindow) {
+        doctorWindow.close();
+      }
+
+      showAlert(
+        "Erreur",
+        "Impossible de créer le partage. Vérifie que l’API tourne sur localhost:4000."
+      );
+    }
+  }
+
+  async function refreshAccessLogs() {
+    if (!currentShareId) {
+      showAlert(
+        "Aucun partage",
+        "Ouvre d’abord un brief médecin pour générer un lien de partage."
+      );
+      return;
+    }
+
+    try {
+      setIsLoadingLogs(true);
+
+      const response = await fetch(
+        `http://localhost:4000/shares/${currentShareId}/access-logs`
+      );
+
+      if (!response.ok) {
+        throw new Error("Impossible de récupérer les logs d’accès");
+      }
+
+      const data = await response.json();
+
+      setAccessCount(data.count);
+      setLatestAccessAt(data.logs[0]?.openedAt ?? null);
+    } catch (error) {
+      console.error(error);
+      showAlert("Erreur", "Impossible de récupérer l’historique d’accès.");
+    } finally {
+      setIsLoadingLogs(false);
+    }
+  }
+
+  async function revokeCurrentShare() {
+    if (!currentShareId) {
+      showAlert(
+        "Aucun partage",
+        "Ouvre d’abord un brief médecin pour générer un lien de partage."
+      );
+      return;
+    }
+
+    try {
+      setIsRevokingShare(true);
+
+      const response = await fetch(
+        `http://localhost:4000/shares/${currentShareId}/revoke`,
+        {
+          method: "PATCH",
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Révocation échouée ${response.status}: ${errorText}`);
+      }
+
+      const data = await response.json();
+
+      setRevokedAt(data.revokedAt ?? new Date().toISOString());
+      showAlert("Accès révoqué", "Le lien médecin n’est plus disponible.");
+    } catch (error) {
+      console.error(error);
+      showAlert(
+        "Erreur",
+        error instanceof Error ? error.message : "Impossible de révoquer le partage."
+      );
+    } finally {
+      setIsRevokingShare(false);
+    }
+  }
+
+  async function refreshShares() {
+    try {
+      setIsLoadingShares(true);
+
+      const response = await fetch("http://localhost:4000/shares");
+
+      if (!response.ok) {
+        throw new Error("Impossible de récupérer les partages");
+      }
+
+      const data = (await response.json()) as PatientShare[];
+
+      setShares(data);
+    } catch (error) {
+      console.error(error);
+      showAlert("Erreur", "Impossible de récupérer les partages actifs.");
+    } finally {
+      setIsLoadingShares(false);
+    }
+  }
+
+  async function revokeShareById(shareId: string) {
+    try {
+      const response = await fetch(`http://localhost:4000/shares/${shareId}/revoke`, {
+        method: "PATCH",
+      });
+
+      if (!response.ok) {
+        throw new Error("Impossible de révoquer ce partage");
+      }
+
+      if (shareId === currentShareId) {
+        const data = await response.json();
+        setRevokedAt(data.revokedAt ?? new Date().toISOString());
+      }
+
+      await refreshShares();
+    } catch (error) {
+      console.error(error);
+      showAlert("Erreur", "Impossible de révoquer ce partage.");
+    }
   }
 
   return (
@@ -429,15 +541,22 @@ async function revokeCurrentShare() {
             )}
           </View>
 
-          <TouchableOpacity style={styles.primaryButton} onPress={startMockImport}>
+          <TouchableOpacity style={styles.primaryButton} onPress={startDocumentImport}>
             <Text style={styles.primaryButtonText}>Importer un document</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.secondaryButton} onPress={() => setScreen("share")}>
+            <Text style={styles.secondaryButtonText}>Partager avec un médecin</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.secondaryButton}
-            onPress={() => setScreen("share")}
+            onPress={() => {
+              setScreen("shares");
+              refreshShares();
+            }}
           >
-            <Text style={styles.secondaryButtonText}>Partager avec un médecin</Text>
+            <Text style={styles.secondaryButtonText}>Mes partages actifs</Text>
           </TouchableOpacity>
         </ScrollView>
       )}
@@ -447,7 +566,7 @@ async function revokeCurrentShare() {
           <Text style={styles.kicker}>Analyse du document</Text>
           <Text style={styles.title}>Lecture en cours…</Text>
           <Text style={styles.subtitle}>
-            Nous simulons ici l’extraction du document importé.
+            Nous analysons le document importé via l’API locale.
           </Text>
 
           {importedDocument && (
@@ -497,7 +616,9 @@ async function revokeCurrentShare() {
               <Text style={styles.actionTitle}>{documentType}</Text>
             )}
 
-            <Text style={styles.source}>Confiance : 92 %</Text>
+            <Text style={styles.source}>
+              Confiance : {Math.round(documentConfidence * 100)} %
+            </Text>
           </View>
 
           <EditableCard
@@ -632,10 +753,7 @@ async function revokeCurrentShare() {
             <Text style={styles.primaryButtonText}>Confirmer et ajouter au carnet</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.secondaryButton}
-            onPress={() => setScreen("dashboard")}
-          >
+          <TouchableOpacity style={styles.secondaryButton} onPress={() => setScreen("dashboard")}>
             <Text style={styles.secondaryButtonText}>Annuler</Text>
           </TouchableOpacity>
         </ScrollView>
@@ -656,9 +774,11 @@ async function revokeCurrentShare() {
             <Text style={styles.shareCode}>739421</Text>
             <Text style={styles.shareSource}>Expire dans 24 heures</Text>
           </View>
-		<TouchableOpacity style={styles.primaryButton} onPress={openDoctorBrief}>
-		  <Text style={styles.primaryButtonText}>Ouvrir le brief médecin</Text>
-		</TouchableOpacity>
+
+          <TouchableOpacity style={styles.primaryButton} onPress={openDoctorBrief}>
+            <Text style={styles.primaryButtonText}>Ouvrir le brief médecin</Text>
+          </TouchableOpacity>
+
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Données partagées</Text>
             <Text style={styles.item}>• Résumé médical</Text>
@@ -668,63 +788,143 @@ async function revokeCurrentShare() {
             <Text style={styles.item}>• Documents sources sélectionnés</Text>
           </View>
 
-		  <View style={styles.card}>
-  <Text style={styles.cardTitle}>Historique d’accès</Text>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Historique d’accès</Text>
 
-  {currentShareId ? (
-    <>
-      <Text style={styles.item}>
-        • Lien actif : {currentShareId.slice(0, 8)}...
-      </Text>
+            {currentShareId ? (
+              <>
+                <Text style={styles.item}>• Lien actif : {currentShareId.slice(0, 8)}...</Text>
 
-      {accessCount === null ? (
-        <Text style={styles.emptyText}>
-          Aucun historique chargé pour le moment.
-        </Text>
-      ) : (
-        <>
-          <Text style={styles.item}>• Consulté {accessCount} fois</Text>
-          <Text style={styles.item}>
-            • Dernière ouverture :{" "}
-            {latestAccessAt
-              ? new Date(latestAccessAt).toLocaleString("fr-FR")
-              : "Aucune"}
-          </Text>
-        </>
+                {accessCount === null ? (
+                  <Text style={styles.emptyText}>Aucun historique chargé pour le moment.</Text>
+                ) : (
+                  <>
+                    <Text style={styles.item}>• Consulté {accessCount} fois</Text>
+                    <Text style={styles.item}>
+                      • Dernière ouverture :{" "}
+                      {latestAccessAt
+                        ? new Date(latestAccessAt).toLocaleString("fr-FR")
+                        : "Aucune"}
+                    </Text>
+                  </>
+                )}
+
+                <TouchableOpacity
+                  style={styles.smallButton}
+                  onPress={refreshAccessLogs}
+                  disabled={isLoadingLogs}
+                >
+                  <Text style={styles.smallButtonText}>
+                    {isLoadingLogs ? "Chargement..." : "Actualiser l’historique"}
+                  </Text>
+                </TouchableOpacity>
+
+                {revokedAt ? (
+                  <Text style={styles.revokedText}>
+                    Accès révoqué le {new Date(revokedAt).toLocaleString("fr-FR")}
+                  </Text>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.dangerButton}
+                    onPress={revokeCurrentShare}
+                    disabled={isRevokingShare}
+                  >
+                    <Text style={styles.dangerButtonText}>
+                      {isRevokingShare ? "Révocation..." : "Révoquer l’accès"}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </>
+            ) : (
+              <Text style={styles.emptyText}>
+                Ouvrez d’abord le brief médecin pour créer un lien de partage.
+              </Text>
+            )}
+          </View>
+
+          <TouchableOpacity style={styles.primaryButton} onPress={() => setScreen("dashboard")}>
+            <Text style={styles.primaryButtonText}>Retour au carnet</Text>
+          </TouchableOpacity>
+        </ScrollView>
       )}
 
-      <TouchableOpacity
-        style={styles.smallButton}
-        onPress={refreshAccessLogs}
-        disabled={isLoadingLogs}
-      >
-        <Text style={styles.smallButtonText}>
-          {isLoadingLogs ? "Chargement..." : "Actualiser l’historique"}
-        </Text>
-      </TouchableOpacity>
+      {screen === "shares" && (
+        <ScrollView contentContainerStyle={styles.container}>
+          <View style={styles.header}>
+            <Text style={styles.kicker}>Contrôle des accès</Text>
+            <Text style={styles.title}>Mes partages actifs</Text>
+            <Text style={styles.subtitle}>
+              Retrouvez les briefs partagés, leur statut, leur historique d’accès et
+              révoquez un lien si nécessaire.
+            </Text>
+          </View>
 
-      {revokedAt ? (
-        <Text style={styles.revokedText}>
-          Accès révoqué le {new Date(revokedAt).toLocaleString("fr-FR")}
-        </Text>
-      ) : (
-        <TouchableOpacity
-          style={styles.dangerButton}
-          onPress={revokeCurrentShare}
-          disabled={isRevokingShare}
-        >
-          <Text style={styles.dangerButtonText}>
-            {isRevokingShare ? "Révocation..." : "Révoquer l’accès"}
-          </Text>
-        </TouchableOpacity>
-      )}
-    </>
-  ) : (
-    <Text style={styles.emptyText}>
-      Ouvrez d’abord le brief médecin pour créer un lien de partage.
-    </Text>
-  )}
-</View>
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={refreshShares}
+            disabled={isLoadingShares}
+          >
+            <Text style={styles.secondaryButtonText}>
+              {isLoadingShares ? "Chargement..." : "Actualiser"}
+            </Text>
+          </TouchableOpacity>
+
+          {shares.length === 0 ? (
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Aucun partage</Text>
+              <Text style={styles.emptyText}>Aucun brief partagé pour le moment.</Text>
+            </View>
+          ) : (
+            shares.map((share) => (
+              <View key={share.id} style={styles.card}>
+                <View style={styles.cardHeaderRow}>
+                  <Text style={styles.cardTitleNoMargin}>{share.documentType}</Text>
+                  <Text
+                    style={[
+                      styles.statusPill,
+                      share.status === "active" && styles.statusActive,
+                      share.status === "revoked" && styles.statusRevoked,
+                      share.status === "expired" && styles.statusExpired,
+                    ]}
+                  >
+                    {share.status === "active"
+                      ? "Actif"
+                      : share.status === "revoked"
+                      ? "Révoqué"
+                      : "Expiré"}
+                  </Text>
+                </View>
+
+                <Text style={styles.actionTitle}>{share.actionTitle}</Text>
+                <Text style={styles.source}>Source : {share.source}</Text>
+                <Text style={styles.item}>
+                  • Créé le {new Date(share.createdAt).toLocaleString("fr-FR")}
+                </Text>
+                <Text style={styles.item}>
+                  • Expire le {new Date(share.expiresAt).toLocaleString("fr-FR")}
+                </Text>
+                <Text style={styles.item}>• Consulté {share.accessCount} fois</Text>
+
+                {share.latestAccessAt && (
+                  <Text style={styles.item}>
+                    • Dernière ouverture :{" "}
+                    {new Date(share.latestAccessAt).toLocaleString("fr-FR")}
+                  </Text>
+                )}
+
+                <Text style={styles.source}>ID : {share.id.slice(0, 8)}...</Text>
+
+                {share.status === "active" && (
+                  <TouchableOpacity
+                    style={styles.dangerButton}
+                    onPress={() => revokeShareById(share.id)}
+                  >
+                    <Text style={styles.dangerButtonText}>Révoquer l’accès</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            ))
+          )}
 
           <TouchableOpacity style={styles.primaryButton} onPress={() => setScreen("dashboard")}>
             <Text style={styles.primaryButtonText}>Retour au carnet</Text>
@@ -744,7 +944,7 @@ function EditableCard({
   title: string;
   editing: boolean;
   onToggleEdit: () => void;
-  fields: React.ReactNode;
+  fields: ReactNode;
 }) {
   return (
     <View style={styles.card}>
@@ -851,6 +1051,56 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   secondaryButtonText: { color: "#172033", fontWeight: "800", fontSize: 16 },
+  smallButton: {
+    marginTop: 14,
+    backgroundColor: "#E5EDF7",
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  smallButtonText: {
+    color: "#172033",
+    fontWeight: "800",
+    fontSize: 14,
+  },
+  dangerButton: {
+    marginTop: 10,
+    backgroundColor: "#FEE2E2",
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  dangerButtonText: {
+    color: "#991B1B",
+    fontWeight: "800",
+    fontSize: 14,
+  },
+  revokedText: {
+    marginTop: 12,
+    color: "#991B1B",
+    fontWeight: "800",
+    fontSize: 14,
+  },
+  statusPill: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    fontSize: 12,
+    fontWeight: "900",
+    overflow: "hidden",
+  },
+  statusActive: {
+    backgroundColor: "#DCFCE7",
+    color: "#166534",
+  },
+  statusRevoked: {
+    backgroundColor: "#FEE2E2",
+    color: "#991B1B",
+  },
+  statusExpired: {
+    backgroundColor: "#E5E7EB",
+    color: "#374151",
+  },
   shareCard: {
     backgroundColor: "#172033",
     borderRadius: 28,
@@ -882,34 +1132,4 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#172033",
   },
-  smallButton: {
-  marginTop: 14,
-  backgroundColor: "#E5EDF7",
-  borderRadius: 14,
-  paddingVertical: 12,
-  alignItems: "center",
-},
-smallButtonText: {
-  color: "#172033",
-  fontWeight: "800",
-  fontSize: 14,
-},
-dangerButton: {
-  marginTop: 10,
-  backgroundColor: "#FEE2E2",
-  borderRadius: 14,
-  paddingVertical: 12,
-  alignItems: "center",
-},
-dangerButtonText: {
-  color: "#991B1B",
-  fontWeight: "800",
-  fontSize: 14,
-},
-revokedText: {
-  marginTop: 12,
-  color: "#991B1B",
-  fontWeight: "800",
-  fontSize: 14,
-},
 });
