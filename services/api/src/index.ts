@@ -3,13 +3,36 @@ import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
-import { PrismaClient } from "@prisma/client";
 
 const require = createRequire(import.meta.url);
-const pdfParse = require("pdf-parse") as (
-  buffer: Buffer
-) => Promise<{ text: string }>;
+const pdfParseModule = require("pdf-parse");
+
+async function extractPdfText(buffer: Buffer): Promise<string> {
+  if (typeof pdfParseModule === "function") {
+    const result = await pdfParseModule(buffer);
+    return result.text || "";
+  }
+
+  if (typeof pdfParseModule.default === "function") {
+    const result = await pdfParseModule.default(buffer);
+    return result.text || "";
+  }
+
+  if (pdfParseModule.PDFParse) {
+    const parser = new pdfParseModule.PDFParse({ data: buffer });
+    const result = await parser.getText();
+
+    if (typeof parser.destroy === "function") {
+      await parser.destroy();
+    }
+
+    return result.text || "";
+  }
+
+  throw new Error("Unsupported pdf-parse export format");
+}
 const prisma = new PrismaClient();
+import { PrismaClient } from "@prisma/client";
 
 type SharedBrief = {
   id: string;
@@ -86,8 +109,7 @@ server.post("/documents/extract", async (request, reply) => {
   let extractedText = "";
 
   if (uploadedFile.mimetype === "application/pdf") {
-    const parsedPdf = await pdfParse(fileBuffer);
-    extractedText = parsedPdf.text || "";
+     extractedText = await extractPdfText(fileBuffer);
   }
 
   const extraction = extractMedicalDataFromText({
