@@ -50,8 +50,20 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>("dashboard");
   const [editingSection, setEditingSection] = useState<EditingSection>(null);
   const [importedDocument, setImportedDocument] = useState<ImportedDocument | null>(null);
+  const [currentShareId, setCurrentShareId] = useState<string | null>(null);
+  const [accessCount, setAccessCount] = useState<number | null>(null);
+  const [latestAccessAt, setLatestAccessAt] = useState<string | null>(null);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [revokedAt, setRevokedAt] = useState<string | null>(null);
+  const [isRevokingShare, setIsRevokingShare] = useState(false);
 	
 async function openDoctorBrief() {
+  let doctorWindow: Window | null = null;
+
+  if (Platform.OS === "web" && typeof window !== "undefined") {
+    doctorWindow = window.open("", "_blank");
+  }
+
   try {
     const sourceValue =
       observationSource || actionSource || medicationSource || "Document importé";
@@ -79,21 +91,122 @@ async function openDoctorBrief() {
 
     const data = await response.json();
 
-    const doctorUrl =
-      data.url || `http://localhost:3000?shareId=${data.shareId}`;
+    setCurrentShareId(data.shareId);
+    setAccessCount(null);
+    setLatestAccessAt(null);
+    setRevokedAt(null);
 
-    if (Platform.OS === "web" && typeof window !== "undefined") {
-      window.open(doctorUrl, "_blank");
+    const doctorUrl = `http://localhost:3000/?shareId=${data.shareId}`;
+
+    if (Platform.OS === "web" && doctorWindow) {
+      doctorWindow.location.href = doctorUrl;
       return;
     }
 
     Linking.openURL(doctorUrl);
   } catch (error) {
     console.error(error);
+
+    if (doctorWindow) {
+      doctorWindow.close();
+    }
+
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      window.alert(
+        "Impossible de créer le partage. Vérifie que l’API tourne sur localhost:4000."
+      );
+      return;
+    }
+
     Alert.alert(
       "Erreur",
       "Impossible de créer le partage. Vérifie que l’API tourne sur localhost:4000."
     );
+  }
+}
+
+async function refreshAccessLogs() {
+  if (!currentShareId) {
+    Alert.alert(
+      "Aucun partage",
+      "Ouvre d’abord un brief médecin pour générer un lien de partage."
+    );
+    return;
+  }
+
+  try {
+    setIsLoadingLogs(true);
+
+    const response = await fetch(
+      `http://localhost:4000/shares/${currentShareId}/access-logs`
+    );
+
+    if (!response.ok) {
+      throw new Error("Impossible de récupérer les logs d’accès");
+    }
+
+    const data = await response.json();
+
+    setAccessCount(data.count);
+    setLatestAccessAt(data.logs[0]?.openedAt ?? null);
+  } catch (error) {
+    console.error(error);
+
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      window.alert("Impossible de récupérer l’historique d’accès.");
+      return;
+    }
+
+    Alert.alert("Erreur", "Impossible de récupérer l’historique d’accès.");
+  } finally {
+    setIsLoadingLogs(false);
+  }
+}
+
+async function revokeCurrentShare() {
+  if (!currentShareId) {
+    Alert.alert(
+      "Aucun partage",
+      "Ouvre d’abord un brief médecin pour générer un lien de partage."
+    );
+    return;
+  }
+
+  try {
+    setIsRevokingShare(true);
+
+    const response = await fetch(
+      `http://localhost:4000/shares/${currentShareId}/revoke`,
+      {
+        method: "PATCH",
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error("Impossible de révoquer le partage");
+    }
+
+    const data = await response.json();
+
+    setRevokedAt(data.revokedAt ?? new Date().toISOString());
+
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      window.alert("Accès révoqué. Le lien médecin n’est plus disponible.");
+      return;
+    }
+
+    Alert.alert("Accès révoqué", "Le lien médecin n’est plus disponible.");
+  } catch (error) {
+    console.error(error);
+
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      window.alert("Impossible de révoquer le partage.");
+      return;
+    }
+
+    Alert.alert("Erreur", "Impossible de révoquer le partage.");
+  } finally {
+    setIsRevokingShare(false);
   }
 }
 
@@ -555,6 +668,64 @@ async function openDoctorBrief() {
             <Text style={styles.item}>• Documents sources sélectionnés</Text>
           </View>
 
+		  <View style={styles.card}>
+  <Text style={styles.cardTitle}>Historique d’accès</Text>
+
+  {currentShareId ? (
+    <>
+      <Text style={styles.item}>
+        • Lien actif : {currentShareId.slice(0, 8)}...
+      </Text>
+
+      {accessCount === null ? (
+        <Text style={styles.emptyText}>
+          Aucun historique chargé pour le moment.
+        </Text>
+      ) : (
+        <>
+          <Text style={styles.item}>• Consulté {accessCount} fois</Text>
+          <Text style={styles.item}>
+            • Dernière ouverture :{" "}
+            {latestAccessAt
+              ? new Date(latestAccessAt).toLocaleString("fr-FR")
+              : "Aucune"}
+          </Text>
+        </>
+      )}
+
+      <TouchableOpacity
+        style={styles.smallButton}
+        onPress={refreshAccessLogs}
+        disabled={isLoadingLogs}
+      >
+        <Text style={styles.smallButtonText}>
+          {isLoadingLogs ? "Chargement..." : "Actualiser l’historique"}
+        </Text>
+      </TouchableOpacity>
+
+      {revokedAt ? (
+        <Text style={styles.revokedText}>
+          Accès révoqué le {new Date(revokedAt).toLocaleString("fr-FR")}
+        </Text>
+      ) : (
+        <TouchableOpacity
+          style={styles.dangerButton}
+          onPress={revokeCurrentShare}
+          disabled={isRevokingShare}
+        >
+          <Text style={styles.dangerButtonText}>
+            {isRevokingShare ? "Révocation..." : "Révoquer l’accès"}
+          </Text>
+        </TouchableOpacity>
+      )}
+    </>
+  ) : (
+    <Text style={styles.emptyText}>
+      Ouvrez d’abord le brief médecin pour créer un lien de partage.
+    </Text>
+  )}
+</View>
+
           <TouchableOpacity style={styles.primaryButton} onPress={() => setScreen("dashboard")}>
             <Text style={styles.primaryButtonText}>Retour au carnet</Text>
           </TouchableOpacity>
@@ -711,4 +882,34 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#172033",
   },
+  smallButton: {
+  marginTop: 14,
+  backgroundColor: "#E5EDF7",
+  borderRadius: 14,
+  paddingVertical: 12,
+  alignItems: "center",
+},
+smallButtonText: {
+  color: "#172033",
+  fontWeight: "800",
+  fontSize: 14,
+},
+dangerButton: {
+  marginTop: 10,
+  backgroundColor: "#FEE2E2",
+  borderRadius: 14,
+  paddingVertical: 12,
+  alignItems: "center",
+},
+dangerButtonText: {
+  color: "#991B1B",
+  fontWeight: "800",
+  fontSize: 14,
+},
+revokedText: {
+  marginTop: 12,
+  color: "#991B1B",
+  fontWeight: "800",
+  fontSize: 14,
+},
 });

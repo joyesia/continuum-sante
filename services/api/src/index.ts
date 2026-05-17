@@ -51,6 +51,8 @@ const server = Fastify({
 
 await server.register(cors, {
   origin: true,
+  methods: ["GET", "POST", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type"],
 });
 
 await server.register(multipart, {
@@ -142,6 +144,12 @@ server.get("/shares/:id", async (request, reply) => {
       error: "Share not found",
     });
   }
+	if (sharedBrief.revokedAt) {
+  		return reply.code(403).send({
+    		error: "Share revoked",
+ 	 	});
+	}
+
 
   if (sharedBrief.expiresAt.getTime() < Date.now()) {
     return reply.code(410).send({
@@ -164,6 +172,41 @@ server.get("/shares/:id", async (request, reply) => {
     observationDescription: sharedBrief.observationDescription || "",
     medicationName: sharedBrief.medicationName || "",
     medicationDosage: sharedBrief.medicationDosage || "",
+  };
+});
+
+server.patch("/shares/:id/revoke", async (request, reply) => {
+  const { id } = request.params as { id: string };
+
+  const existingShare = await prisma.sharedBrief.findUnique({
+    where: { id },
+  });
+
+  if (!existingShare) {
+    return reply.code(404).send({
+      error: "Share not found",
+    });
+  }
+
+  if (existingShare.revokedAt) {
+    return {
+      shareId: existingShare.id,
+      revokedAt: existingShare.revokedAt,
+      alreadyRevoked: true,
+    };
+  }
+
+  const revokedShare = await prisma.sharedBrief.update({
+    where: { id },
+    data: {
+      revokedAt: new Date(),
+    },
+  });
+
+  return {
+    shareId: revokedShare.id,
+    revokedAt: revokedShare.revokedAt,
+    alreadyRevoked: false,
   };
 });
 
