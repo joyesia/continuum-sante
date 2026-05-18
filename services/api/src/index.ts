@@ -3,9 +3,11 @@ import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
+import { PrismaClient } from "@prisma/client";
 
 const require = createRequire(import.meta.url);
 const pdfParseModule = require("pdf-parse");
+const prisma = new PrismaClient();
 
 async function extractPdfText(buffer: Buffer): Promise<string> {
   if (typeof pdfParseModule === "function") {
@@ -31,12 +33,11 @@ async function extractPdfText(buffer: Buffer): Promise<string> {
 
   throw new Error("Unsupported pdf-parse export format");
 }
-const prisma = new PrismaClient();
-import { PrismaClient } from "@prisma/client";
 
 type SharedBrief = {
   id: string;
   code: string;
+  documentId?: string;
   documentType: string;
   actionTitle: string;
   actionDescription: string;
@@ -47,12 +48,9 @@ type SharedBrief = {
   source: string;
   createdAt: string;
   expiresAt: string;
-  documentId?: string;
 };
 
 type ExtractedMedicalData = {
-  documentId: string;
-  filename: string;
   documentType: string;
   confidence: number;
   actionTitle: string;
@@ -69,7 +67,6 @@ type ExtractedMedicalData = {
   observationSource: string;
   extractedTextPreview: string;
 };
-
 
 const server = Fastify({
   logger: true,
@@ -94,6 +91,44 @@ server.get("/health", async () => {
   };
 });
 
+server.get("/documents", async () => {
+  const documents = await prisma.document.findMany({
+    orderBy: {
+      createdAt: "desc",
+    },
+    include: {
+      shares: true,
+    },
+  });
+
+  return documents.map((document) => {
+    const now = Date.now();
+
+    const activeShares = document.shares.filter(
+      (share) => !share.revokedAt && share.expiresAt.getTime() > now
+    );
+
+    return {
+      id: document.id,
+      filename: document.filename,
+      mimeType: document.mimeType,
+      sizeBytes: document.sizeBytes,
+      documentType: document.documentType,
+      confidence: document.confidence,
+      actionTitle: document.actionTitle,
+      actionDescription: document.actionDescription,
+      observationTitle: document.observationTitle,
+      observationDescription: document.observationDescription,
+      medicationName: document.medicationName,
+      medicationDosage: document.medicationDosage,
+      source: document.source,
+      createdAt: document.createdAt,
+      shareCount: document.shares.length,
+      activeShareCount: activeShares.length,
+    };
+  });
+});
+
 server.post("/documents/extract", async (request, reply) => {
   const uploadedFile = await request.file();
 
@@ -109,7 +144,7 @@ server.post("/documents/extract", async (request, reply) => {
   let extractedText = "";
 
   if (uploadedFile.mimetype === "application/pdf") {
-     extractedText = await extractPdfText(fileBuffer);
+    extractedText = await extractPdfText(fileBuffer);
   }
 
   const extraction = extractMedicalDataFromText({
@@ -117,11 +152,9 @@ server.post("/documents/extract", async (request, reply) => {
     extractedText,
   });
 
-  const documentId = crypto.randomUUID();
-
   const document = await prisma.document.create({
     data: {
-      id: documentId,
+      id: crypto.randomUUID(),
       filename,
       mimeType: uploadedFile.mimetype,
       sizeBytes: fileBuffer.byteLength,
@@ -151,7 +184,11 @@ server.get("/shares", async () => {
       createdAt: "desc",
     },
     include: {
-      accessLogs: true,
+      accessLogs: {
+        orderBy: {
+          openedAt: "desc",
+        },
+      },
     },
   });
 
@@ -163,6 +200,7 @@ server.get("/shares", async () => {
     return {
       id: share.id,
       code: share.code,
+      documentId: share.documentId,
       documentType: share.documentType,
       actionTitle: share.actionTitle,
       source: share.source,
@@ -185,10 +223,23 @@ server.post("/shares", async (request, reply) => {
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
+  let validDocumentId: string | undefined;
+
+  if (body.documentId) {
+    const document = await prisma.document.findUnique({
+      where: {
+        id: body.documentId,
+      },
+    });
+
+    validDocumentId = document?.id;
+  }
+
   const sharedBrief = await prisma.sharedBrief.create({
     data: {
       id,
       code,
+      documentId: validDocumentId,
       documentType: body.documentType || "Document médical",
       actionTitle: body.actionTitle || "Action médicale à vérifier",
       actionDescription:
@@ -200,7 +251,6 @@ server.post("/shares", async (request, reply) => {
       medicationDosage: body.medicationDosage || "",
       source: body.source || "Document importé",
       expiresAt,
-	  documentId: body.documentId || undefined,
     },
   });
 
@@ -210,7 +260,6 @@ server.post("/shares", async (request, reply) => {
     url: `http://localhost:3000?shareId=${sharedBrief.id}`,
   });
 });
-
 
 server.get("/shares/:id", async (request, reply) => {
   const { id } = request.params as { id: string };
@@ -224,12 +273,12 @@ server.get("/shares/:id", async (request, reply) => {
       error: "Share not found",
     });
   }
-	if (sharedBrief.revokedAt) {
-  		return reply.code(403).send({
-    		error: "Share revoked",
- 	 	});
-	}
 
+  if (sharedBrief.revokedAt) {
+    return reply.code(403).send({
+      error: "Share revoked",
+    });
+  }
 
   if (sharedBrief.expiresAt.getTime() < Date.now()) {
     return reply.code(410).send({
@@ -345,8 +394,7 @@ function extractMedicalDataFromText({
 
   if (looksLikeBiology) {
     const hasHighGlucose =
-      normalizedText.includes("glycémie") ||
-      normalizedText.includes("glycemie");
+      normalizedText.includes("glycémie") || normalizedText.includes("glycemie");
 
     return {
       documentType: "Analyse biologique",

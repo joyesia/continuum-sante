@@ -14,7 +14,14 @@ import {
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
-type Screen = "dashboard" | "analyzing" | "review" | "share" | "shares";
+type Screen =
+  | "dashboard"
+  | "analyzing"
+  | "review"
+  | "share"
+  | "shares"
+  | "documents";
+
 type EditingSection = null | "document" | "action" | "medication" | "observation";
 
 type ImportedDocument = {
@@ -80,6 +87,25 @@ type PatientShare = {
   status: "active" | "revoked" | "expired";
 };
 
+type PatientDocument = {
+  id: string;
+  filename: string;
+  mimeType?: string | null;
+  sizeBytes?: number | null;
+  documentType: string;
+  confidence: number;
+  actionTitle: string;
+  actionDescription: string;
+  observationTitle?: string | null;
+  observationDescription?: string | null;
+  medicationName?: string | null;
+  medicationDosage?: string | null;
+  source: string;
+  createdAt: string;
+  shareCount: number;
+  activeShareCount: number;
+};
+
 export default function App() {
   const [screen, setScreen] = useState<Screen>("dashboard");
   const [editingSection, setEditingSection] = useState<EditingSection>(null);
@@ -94,6 +120,9 @@ export default function App() {
 
   const [shares, setShares] = useState<PatientShare[]>([]);
   const [isLoadingShares, setIsLoadingShares] = useState(false);
+
+  const [documents, setDocuments] = useState<PatientDocument[]>([]);
+  const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
 
   const [actions, setActions] = useState<MedicalAction[]>([
     {
@@ -463,6 +492,27 @@ export default function App() {
     }
   }
 
+  async function refreshDocuments() {
+  try {
+    setIsLoadingDocuments(true);
+
+    const response = await fetch("http://localhost:4000/documents");
+
+    if (!response.ok) {
+      throw new Error("Impossible de récupérer les documents");
+    }
+
+    const data = (await response.json()) as PatientDocument[];
+
+    setDocuments(data);
+  } catch (error) {
+    console.error(error);
+    showAlert("Erreur", "Impossible de récupérer les documents importés.");
+  } finally {
+    setIsLoadingDocuments(false);
+  }
+}
+
   async function revokeShareById(shareId: string) {
     try {
       const response = await fetch(`http://localhost:4000/shares/${shareId}/revoke`, {
@@ -554,15 +604,20 @@ export default function App() {
             <Text style={styles.secondaryButtonText}>Partager avec un médecin</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.secondaryButton}
-            onPress={() => {
-              setScreen("shares");
+          <TouchableOpacity	style={styles.secondaryButton}	onPress={() => { setScreen("shares");
               refreshShares();
             }}
           >
             <Text style={styles.secondaryButtonText}>Mes partages actifs</Text>
           </TouchableOpacity>
+
+		     <TouchableOpacity style={styles.secondaryButton} onPress={() => { setScreen("documents");
+               refreshDocuments();
+            }}
+          >
+            <Text style={styles.secondaryButtonText}>Mes documents</Text>
+          </TouchableOpacity>
+
         </ScrollView>
       )}
 
