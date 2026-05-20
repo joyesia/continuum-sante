@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import * as DocumentPicker from "expo-document-picker";
 import {
   Alert,
@@ -106,6 +106,61 @@ type PatientDocument = {
   activeShareCount: number;
 };
 
+type DashboardStats = {
+  documentCount: number;
+  activeShareCount: number;
+  actionCount: number;
+  vigilanceCount: number;
+};
+
+type DashboardDocument = {
+  id: string;
+  filename: string;
+  documentType: string;
+  confidence: number;
+  createdAt: string;
+  source: string;
+  shareCount: number;
+};
+
+type DashboardAction = {
+  id: string;
+  title: string;
+  description: string;
+  source: string;
+  documentType: string;
+  createdAt: string;
+};
+
+type DashboardVigilancePoint = {
+  id: string;
+  title: string;
+  description: string;
+  source: string;
+  documentType: string;
+  createdAt: string;
+};
+
+type DashboardActiveShare = {
+  id: string;
+  documentId?: string | null;
+  documentType: string;
+  actionTitle: string;
+  source: string;
+  createdAt: string;
+  expiresAt: string;
+  accessCount: number;
+  latestAccessAt?: string | null;
+};
+
+type PatientDashboard = {
+  stats: DashboardStats;
+  recentDocuments: DashboardDocument[];
+  latestActions: DashboardAction[];
+  vigilancePoints: DashboardVigilancePoint[];
+  activeShares: DashboardActiveShare[];
+};
+
 export default function App() {
   const [screen, setScreen] = useState<Screen>("dashboard");
   const [editingSection, setEditingSection] = useState<EditingSection>(null);
@@ -121,8 +176,8 @@ export default function App() {
   const [shares, setShares] = useState<PatientShare[]>([]);
   const [isLoadingShares, setIsLoadingShares] = useState(false);
 
-  const [documents, setDocuments] = useState<PatientDocument[]>([]);
-  const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
+  const [dashboard, setDashboard] = useState<PatientDashboard | null>(null);
+  const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
 
   const [actions, setActions] = useState<MedicalAction[]>([
     {
@@ -166,6 +221,30 @@ export default function App() {
 
     Alert.alert(title, message);
   }
+
+  async function refreshDashboard() {
+  try {
+    setIsLoadingDashboard(true);
+
+    const response = await fetch("http://localhost:4000/dashboard");
+
+    if (!response.ok) {
+      throw new Error("Impossible de récupérer le dashboard");
+    }
+
+    const data = (await response.json()) as PatientDashboard;
+
+    setDashboard(data);
+  } catch (error) {
+    console.error(error);
+  } finally {
+    setIsLoadingDashboard(false);
+  }
+}
+
+useEffect(() => {
+  refreshDashboard();
+}, []);
 
   function applyExtraction(extraction: ApiExtraction) {
 	setCurrentDocumentId(extraction.documentId);
@@ -335,7 +414,8 @@ export default function App() {
     }
 
     setEditingSection(null);
-    setScreen("dashboard");
+	setScreen("dashboard");
+	refreshDashboard();
   }
 
   async function openDoctorBrief() {
@@ -550,31 +630,75 @@ export default function App() {
             </Text>
           </View>
 
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>À faire</Text>
+                   <View style={styles.card}>
+            <View style={styles.cardHeaderRow}>
+              <Text style={styles.cardTitleNoMargin}>Synthèse du carnet</Text>
 
-            {actions.map((action) => (
-              <View key={action.id} style={styles.actionItem}>
-                <Text style={styles.actionTitle}>{action.title}</Text>
-                <Text style={styles.actionDescription}>{action.description}</Text>
-                <Text style={styles.source}>Source : {action.source}</Text>
+              <TouchableOpacity onPress={refreshDashboard} disabled={isLoadingDashboard}>
+                <Text style={styles.refreshText}>
+                  {isLoadingDashboard ? "..." : "Actualiser"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {dashboard ? (
+              <View style={styles.statsGrid}>
+                <View style={styles.statBox}>
+                  <Text style={styles.statNumber}>{dashboard.stats.documentCount}</Text>
+                  <Text style={styles.statLabel}>Documents</Text>
+                </View>
+
+                <View style={styles.statBox}>
+                  <Text style={styles.statNumber}>{dashboard.stats.activeShareCount}</Text>
+                  <Text style={styles.statLabel}>Partages actifs</Text>
+                </View>
+
+                <View style={styles.statBox}>
+                  <Text style={styles.statNumber}>{dashboard.stats.actionCount}</Text>
+                  <Text style={styles.statLabel}>Actions</Text>
+                </View>
+
+                <View style={styles.statBox}>
+                  <Text style={styles.statNumber}>{dashboard.stats.vigilanceCount}</Text>
+                  <Text style={styles.statLabel}>Vigilances</Text>
+                </View>
               </View>
-            ))}
+            ) : (
+              <Text style={styles.emptyText}>
+                Aucune donnée de dashboard chargée pour le moment.
+              </Text>
+            )}
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Traitements</Text>
+            <Text style={styles.cardTitle}>Documents récents</Text>
 
-            {medications.length === 0 ? (
-              <Text style={styles.emptyText}>Aucun traitement confirmé pour le moment.</Text>
+            {!dashboard || dashboard.recentDocuments.length === 0 ? (
+              <Text style={styles.emptyText}>Aucun document importé.</Text>
             ) : (
-              medications.map((medication) => (
-                <View key={medication.id} style={styles.actionItem}>
-                  <Text style={styles.actionTitle}>
-                    {medication.name} — {medication.dosage}
+              dashboard.recentDocuments.map((document: DashboardDocument) => (
+                <View key={document.id} style={styles.actionItem}>
+                  <Text style={styles.actionTitle}>{document.documentType}</Text>
+                  <Text style={styles.actionDescription}>{document.filename}</Text>
+                  <Text style={styles.source}>
+                    Importé le {new Date(document.createdAt).toLocaleString("fr-FR")}
                   </Text>
-                  <Text style={styles.actionDescription}>{medication.instructions}</Text>
-                  <Text style={styles.source}>Source : {medication.source}</Text>
+                </View>
+              ))
+            )}
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Actions à vérifier</Text>
+
+            {!dashboard || dashboard.latestActions.length === 0 ? (
+              <Text style={styles.emptyText}>Aucune action détectée.</Text>
+            ) : (
+              dashboard.latestActions.map((action: DashboardAction) => (
+                <View key={action.id} style={styles.actionItem}>
+                  <Text style={styles.actionTitle}>{action.title}</Text>
+                  <Text style={styles.actionDescription}>{action.description}</Text>
+                  <Text style={styles.source}>Source : {action.source}</Text>
                 </View>
               ))
             )}
@@ -583,14 +707,33 @@ export default function App() {
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Points de vigilance</Text>
 
-            {observations.length === 0 ? (
-              <Text style={styles.emptyText}>Aucun point de vigilance détecté pour le moment.</Text>
+            {!dashboard || dashboard.vigilancePoints.length === 0 ? (
+              <Text style={styles.emptyText}>Aucun point de vigilance détecté.</Text>
             ) : (
-              observations.map((observation) => (
-                <View key={observation.id} style={styles.actionItem}>
-                  <Text style={styles.actionTitle}>{observation.title}</Text>
-                  <Text style={styles.actionDescription}>{observation.description}</Text>
-                  <Text style={styles.source}>Source : {observation.source}</Text>
+              dashboard.vigilancePoints.map((point: DashboardVigilancePoint) => (
+                <View key={point.id} style={styles.actionItem}>
+                  <Text style={styles.actionTitle}>{point.title}</Text>
+                  <Text style={styles.actionDescription}>{point.description}</Text>
+                  <Text style={styles.source}>Source : {point.source}</Text>
+                </View>
+              ))
+            )}
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Partages actifs</Text>
+
+            {!dashboard || dashboard.activeShares.length === 0 ? (
+              <Text style={styles.emptyText}>Aucun partage actif.</Text>
+            ) : (
+              dashboard.activeShares.map((share: DashboardActiveShare) => (
+                <View key={share.id} style={styles.actionItem}>
+                  <Text style={styles.actionTitle}>{share.documentType}</Text>
+                  <Text style={styles.actionDescription}>{share.actionTitle}</Text>
+                  <Text style={styles.source}>
+                    Consulté {share.accessCount} fois — expire le{" "}
+                    {new Date(share.expiresAt).toLocaleString("fr-FR")}
+                  </Text>
                 </View>
               ))
             )}
@@ -1309,4 +1452,31 @@ const styles = StyleSheet.create({
     backgroundColor: "#E8EDF5",
     marginVertical: 14,
   },
+  refreshText: {
+  color: "#4776A8",
+  fontWeight: "800",
+  fontSize: 13,
+},
+statsGrid: {
+  flexDirection: "row",
+  flexWrap: "wrap",
+  gap: 12,
+},
+statBox: {
+  width: "47%",
+  backgroundColor: "#F4F7FB",
+  borderRadius: 18,
+  padding: 14,
+},
+statNumber: {
+  fontSize: 28,
+  fontWeight: "900",
+  color: "#172033",
+},
+statLabel: {
+  marginTop: 4,
+  fontSize: 13,
+  fontWeight: "700",
+  color: "#536179",
+},
 });
