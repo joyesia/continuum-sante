@@ -91,6 +91,97 @@ server.get("/health", async () => {
   };
 });
 
+server.get("/dashboard", async () => {
+  const now = Date.now();
+
+  const [documents, shares] = await Promise.all([
+    prisma.document.findMany({
+      orderBy: {
+        createdAt: "desc",
+      },
+      include: {
+        shares: true,
+      },
+    }),
+
+    prisma.sharedBrief.findMany({
+      orderBy: {
+        createdAt: "desc",
+      },
+      include: {
+        accessLogs: {
+          orderBy: {
+            openedAt: "desc",
+          },
+        },
+      },
+    }),
+  ]);
+
+  const activeShares = shares.filter(
+    (share) => !share.revokedAt && share.expiresAt.getTime() > now
+  );
+
+  const recentDocuments = documents.slice(0, 3).map((document) => ({
+    id: document.id,
+    filename: document.filename,
+    documentType: document.documentType,
+    confidence: document.confidence,
+    createdAt: document.createdAt,
+    source: document.source,
+    shareCount: document.shares.length,
+  }));
+
+  const latestActions = documents
+    .filter((document) => document.actionTitle)
+    .slice(0, 5)
+    .map((document) => ({
+      id: document.id,
+      title: document.actionTitle,
+      description: document.actionDescription,
+      source: document.source,
+      documentType: document.documentType,
+      createdAt: document.createdAt,
+    }));
+
+  const vigilancePoints = documents
+    .filter((document) => document.observationTitle)
+    .slice(0, 5)
+    .map((document) => ({
+      id: document.id,
+      title: document.observationTitle,
+      description: document.observationDescription,
+      source: document.source,
+      documentType: document.documentType,
+      createdAt: document.createdAt,
+    }));
+
+  const activeShareSummaries = activeShares.slice(0, 5).map((share) => ({
+    id: share.id,
+    documentId: share.documentId,
+    documentType: share.documentType,
+    actionTitle: share.actionTitle,
+    source: share.source,
+    createdAt: share.createdAt,
+    expiresAt: share.expiresAt,
+    accessCount: share.accessLogs.length,
+    latestAccessAt: share.accessLogs[0]?.openedAt ?? null,
+  }));
+
+  return {
+    stats: {
+      documentCount: documents.length,
+      activeShareCount: activeShares.length,
+      actionCount: latestActions.length,
+      vigilanceCount: vigilancePoints.length,
+    },
+    recentDocuments,
+    latestActions,
+    vigilancePoints,
+    activeShares: activeShareSummaries,
+  };
+});
+
 server.get("/documents", async () => {
   const documents = await prisma.document.findMany({
     orderBy: {
