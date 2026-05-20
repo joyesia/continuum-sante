@@ -991,6 +991,108 @@ export default function App() {
           </TouchableOpacity>
         </ScrollView>
       )}
+	        {screen === "documents" && (
+        <ScrollView contentContainerStyle={styles.container}>
+          <View style={styles.header}>
+            <Text style={styles.kicker}>Documents importés</Text>
+            <Text style={styles.title}>Mes documents</Text>
+            <Text style={styles.subtitle}>
+              Retrouvez les documents médicaux importés, les informations extraites et
+              les partages associés.
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={refreshDocuments}
+            disabled={isLoadingDocuments}
+          >
+            <Text style={styles.secondaryButtonText}>
+              {isLoadingDocuments ? "Chargement..." : "Actualiser"}
+            </Text>
+          </TouchableOpacity>
+
+          {documents.length === 0 ? (
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Aucun document</Text>
+              <Text style={styles.emptyText}>
+                Aucun document importé pour le moment.
+              </Text>
+            </View>
+          ) : (
+            documents.map((document: PatientDocument) => (
+              <View key={document.id} style={styles.card}>
+                <View style={styles.cardHeaderRow}>
+                  <Text style={styles.cardTitleNoMargin}>
+                    {document.documentType}
+                  </Text>
+                  <Text style={styles.documentPill}>
+                    {Math.round(document.confidence * 100)} %
+                  </Text>
+                </View>
+
+                <Text style={styles.actionTitle}>{document.filename}</Text>
+
+                <Text style={styles.source}>
+                  Importé le {new Date(document.createdAt).toLocaleString("fr-FR")}
+                </Text>
+
+                <Text style={styles.source}>Source : {document.source}</Text>
+
+                <View style={styles.sectionDivider} />
+
+                <Text style={styles.label}>Action extraite</Text>
+                <Text style={styles.actionTitle}>{document.actionTitle}</Text>
+                <Text style={styles.actionDescription}>
+                  {document.actionDescription}
+                </Text>
+
+                {document.observationTitle && (
+                  <>
+                    <Text style={styles.label}>Point de vigilance</Text>
+                    <Text style={styles.actionTitle}>
+                      {document.observationTitle}
+                    </Text>
+                    <Text style={styles.actionDescription}>
+                      {document.observationDescription}
+                    </Text>
+                  </>
+                )}
+
+                {document.medicationName && (
+                  <>
+                    <Text style={styles.label}>Traitement détecté</Text>
+                    <Text style={styles.actionTitle}>
+                      {document.medicationName}
+                      {document.medicationDosage
+                        ? ` — ${document.medicationDosage}`
+                        : ""}
+                    </Text>
+                  </>
+                )}
+
+                <View style={styles.sectionDivider} />
+
+                <Text style={styles.item}>
+                  • Partages créés : {document.shareCount}
+                </Text>
+                <Text style={styles.item}>
+                  • Partages actifs : {document.activeShareCount}
+                </Text>
+
+                <Text style={styles.source}>ID : {document.id.slice(0, 8)}...</Text>
+              </View>
+            ))
+          )}
+
+          <TouchableOpacity
+            style={styles.primaryButton}
+            onPress={() => setScreen("dashboard")}
+          >
+            <Text style={styles.primaryButtonText}>Retour au carnet</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      )}
     </SafeAreaView>
   );
 }
@@ -1191,5 +1293,20 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "800",
     color: "#172033",
+  },
+    documentPill: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    fontSize: 12,
+    fontWeight: "900",
+    overflow: "hidden",
+    backgroundColor: "#E5EDF7",
+    color: "#172033",
+  },
+  sectionDivider: {
+    height: 1,
+    backgroundColor: "#E8EDF5",
+    marginVertical: 14,
   },
 });
