@@ -122,7 +122,23 @@ server.get("/dashboard", async () => {
     (share) => !share.revokedAt && share.expiresAt.getTime() > now
   );
 
-  const recentDocuments = documents.slice(0, 3).map((document) => ({
+  function uniqueBy<T>(items: T[], getKey: (item: T) => string): T[] {
+  const seen = new Set<string>();
+
+  return items.filter((item) => {
+    const key = getKey(item);
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
+  const recentDocuments = uniqueBy(
+  documents.map((document) => ({
     id: document.id,
     filename: document.filename,
     documentType: document.documentType,
@@ -130,11 +146,13 @@ server.get("/dashboard", async () => {
     createdAt: document.createdAt,
     source: document.source,
     shareCount: document.shares.length,
-  }));
+  })),
+  (document) => `${document.filename}-${document.documentType}-${document.source}`
+).slice(0, 3);
 
-  const latestActions = documents
+  const latestActions = uniqueBy(
+  documents
     .filter((document) => document.actionTitle)
-    .slice(0, 5)
     .map((document) => ({
       id: document.id,
       title: document.actionTitle,
@@ -142,11 +160,13 @@ server.get("/dashboard", async () => {
       source: document.source,
       documentType: document.documentType,
       createdAt: document.createdAt,
-    }));
+    })),
+  (action) => `${action.title}-${action.description}`
+).slice(0, 5);
 
-  const vigilancePoints = documents
+const vigilancePoints = uniqueBy(
+  documents
     .filter((document) => document.observationTitle)
-    .slice(0, 5)
     .map((document) => ({
       id: document.id,
       title: document.observationTitle,
@@ -154,7 +174,9 @@ server.get("/dashboard", async () => {
       source: document.source,
       documentType: document.documentType,
       createdAt: document.createdAt,
-    }));
+    })),
+  (point) => `${point.title}-${point.description}`
+).slice(0, 5);
 
   const activeShareSummaries = activeShares.slice(0, 5).map((share) => ({
     id: share.id,
@@ -198,6 +220,21 @@ server.get("/documents", async () => {
     const activeShares = document.shares.filter(
       (share) => !share.revokedAt && share.expiresAt.getTime() > now
     );
+
+	function uniqueBy<T>(items: T[], getKey: (item: T) => string): T[] {
+  const seen = new Set<string>();
+
+  return items.filter((item) => {
+    const key = getKey(item);
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
 
     return {
       id: document.id,
