@@ -182,7 +182,7 @@ export default function App() {
 
   const [dashboard, setDashboard] = useState<PatientDashboard | null>(null);
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
-  
+
   const [actions, setActions] = useState<MedicalAction[]>([
     {
       id: "prise-de-sang",
@@ -687,7 +687,7 @@ async function refreshDocuments() {
             {!dashboard || dashboard.recentDocuments.length === 0 ? (
               <Text style={styles.emptyText}>Aucun document importé.</Text>
             ) : (
-              dashboard.recentDocuments.map((document: DashboardDocument) => (
+              dashboard.recentDocuments.slice(0, 2).map((document: DashboardDocument) => (
                 <View key={document.id} style={styles.actionItem}>
                   <Text style={styles.actionTitle}>{document.documentType}</Text>
                   <Text style={styles.actionDescription}>{document.filename}</Text>
@@ -705,7 +705,7 @@ async function refreshDocuments() {
             {!dashboard || dashboard.latestActions.length === 0 ? (
               <Text style={styles.emptyText}>Aucune action détectée.</Text>
             ) : (
-              dashboard.latestActions.map((action: DashboardAction) => (
+              dashboard.latestActions.slice(0, 2).map((action: DashboardAction) => (
                 <View key={action.id} style={styles.actionItem}>
                   <Text style={styles.actionTitle}>{action.title}</Text>
                   <Text style={styles.actionDescription}>{action.description}</Text>
@@ -721,7 +721,7 @@ async function refreshDocuments() {
             {!dashboard || dashboard.vigilancePoints.length === 0 ? (
               <Text style={styles.emptyText}>Aucun point de vigilance détecté.</Text>
             ) : (
-              dashboard.vigilancePoints.map((point: DashboardVigilancePoint) => (
+              dashboard.vigilancePoints.slice(0, 2).map((point: DashboardVigilancePoint) => (
                 <View key={point.id} style={styles.actionItem}>
                   <Text style={styles.actionTitle}>{point.title}</Text>
                   <Text style={styles.actionDescription}>{point.description}</Text>
@@ -737,7 +737,7 @@ async function refreshDocuments() {
             {!dashboard || dashboard.activeShares.length === 0 ? (
               <Text style={styles.emptyText}>Aucun partage actif.</Text>
             ) : (
-              dashboard.activeShares.map((share: DashboardActiveShare) => (
+              dashboard.activeShares.slice(0, 2).map((share: DashboardActiveShare) => (
                 <View key={share.id} style={styles.actionItem}>
                   <Text style={styles.actionTitle}>{share.documentType}</Text>
                   <Text style={styles.actionDescription}>{share.actionTitle}</Text>
@@ -750,28 +750,49 @@ async function refreshDocuments() {
             )}
           </View>
 
-          <TouchableOpacity style={styles.primaryButton} onPress={startDocumentImport}>
-            <Text style={styles.primaryButtonText}>Importer un document</Text>
-          </TouchableOpacity>
+                   <View style={styles.quickActionsCard}>
+            <Text style={styles.cardTitle}>Actions rapides</Text>
 
-          <TouchableOpacity style={styles.secondaryButton} onPress={() => setScreen("share")}>
-            <Text style={styles.secondaryButtonText}>Partager avec un médecin</Text>
-          </TouchableOpacity>
+            <View style={styles.quickActionsGrid}>
+              <TouchableOpacity
+                style={[styles.quickActionButton, styles.quickActionPrimary]}
+                onPress={startDocumentImport}
+              >
+                <Text style={styles.quickActionPrimaryText}>Importer</Text>
+                <Text style={styles.quickActionSubtext}>Ajouter un PDF</Text>
+              </TouchableOpacity>
 
-          <TouchableOpacity	style={styles.secondaryButton}	onPress={() => { setScreen("shares");
-              refreshShares();
-            }}
-          >
-            <Text style={styles.secondaryButtonText}>Mes partages actifs</Text>
-          </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.quickActionButton}
+                onPress={() => setScreen("share")}
+              >
+                <Text style={styles.quickActionText}>Partager</Text>
+                <Text style={styles.quickActionSubtext}>Brief médecin</Text>
+              </TouchableOpacity>
 
-		     <TouchableOpacity style={styles.secondaryButton} onPress={() => { setScreen("documents");
-               refreshDocuments();
-            }}
-          >
-            <Text style={styles.secondaryButtonText}>Mes documents</Text>
-          </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.quickActionButton}
+                onPress={() => {
+                  setScreen("documents");
+                  refreshDocuments();
+                }}
+              >
+                <Text style={styles.quickActionText}>Documents</Text>
+                <Text style={styles.quickActionSubtext}>Voir tout</Text>
+              </TouchableOpacity>
 
+              <TouchableOpacity
+                style={styles.quickActionButton}
+                onPress={() => {
+                  setScreen("shares");
+                  refreshShares();
+                }}
+              >
+                <Text style={styles.quickActionText}>Partages</Text>
+                <Text style={styles.quickActionSubtext}>Accès actifs</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </ScrollView>
       )}
 
@@ -1490,4 +1511,44 @@ statLabel: {
   fontWeight: "700",
   color: "#536179",
 },
+  quickActionsCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    padding: 18,
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 14,
+    elevation: 3,
+  },
+  quickActionsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  quickActionButton: {
+    width: "48%",
+    backgroundColor: "#E5EDF7",
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+  },
+  quickActionPrimary: {
+    backgroundColor: "#172033",
+  },
+  quickActionText: {
+    color: "#172033",
+    fontWeight: "900",
+    fontSize: 15,
+  },
+  quickActionPrimaryText: {
+    color: "#FFFFFF",
+    fontWeight: "900",
+    fontSize: 15,
+  },
+  quickActionSubtext: {
+    marginTop: 4,
+    color: "#7C879A",
+    fontSize: 12,
+    fontWeight: "700",
+  },
 });
