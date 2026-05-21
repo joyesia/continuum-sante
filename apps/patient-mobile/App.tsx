@@ -183,6 +183,34 @@ type PatientDashboard = {
   upcomingReminders: DashboardReminder[];
 };
 
+function getExtractionConfidenceLabel(confidence: number) {
+  const score = Math.round(confidence * 100);
+
+  if (score >= 90) {
+    return `Lecture fiable · ${score} %`;
+  }
+
+  if (score >= 75) {
+    return `Lecture à vérifier · ${score} %`;
+  }
+
+  return `Lecture incertaine · ${score} %`;
+}
+
+function getExtractionConfidenceNote(confidence: number) {
+  const score = Math.round(confidence * 100);
+
+  if (score >= 90) {
+    return "Le document semble avoir été bien lu par le système. Cela ne constitue pas une validation médicale.";
+  }
+
+  if (score >= 75) {
+    return "Certaines informations peuvent nécessiter une vérification manuelle.";
+  }
+
+  return "La lecture automatique semble incertaine. Vérifiez attentivement les informations extraites.";
+}
+
 export default function App() {
   const [screen, setScreen] = useState<Screen>("dashboard");
   const [editingSection, setEditingSection] = useState<EditingSection>(null);
@@ -1352,10 +1380,19 @@ async function deleteDocumentById(documentId: string) {
                   <Text style={styles.cardTitleNoMargin}>
                     {document.documentType}
                   </Text>
-                  <Text style={styles.documentPill}>
-                    {Math.round(document.confidence * 100)} %
-                  </Text>
-                </View>
+                  <Text
+ 			 style={[
+    			styles.documentPill,
+   				document.confidence >= 0.9 && styles.documentPillReliable,
+   				document.confidence < 0.9 &&
+      				document.confidence >= 0.75 &&
+      				styles.documentPillWarning,
+    			document.confidence < 0.75 && styles.documentPillDanger,
+  			]}
+>
+ 			 {getExtractionConfidenceLabel(document.confidence)}
+			  </Text>
+              </View>
 
                 <Text style={styles.actionTitle}>{document.filename}</Text>
 
@@ -1364,6 +1401,10 @@ async function deleteDocumentById(documentId: string) {
                 </Text>
 
                 <Text style={styles.source}>Source : {document.source}</Text>
+
+				<Text style={styles.extractionNote}>
+  					{getExtractionConfidenceNote(document.confidence)}
+				</Text>
 
                 <View style={styles.sectionDivider} />
 
@@ -1626,7 +1667,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#172033",
   },
-    documentPill: {
+  documentPill: {
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 5,
@@ -1635,6 +1676,18 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     backgroundColor: "#E5EDF7",
     color: "#172033",
+  },
+  documentPillReliable: {
+  	backgroundColor: "#DCFCE7",
+  	color: "#166534",
+  },
+  documentPillWarning: {
+  	backgroundColor: "#FEF3C7",
+  	color: "#92400E",
+  },
+  documentPillDanger: {
+  	backgroundColor: "#FEE2E2",
+  	color: "#991B1B",
   },
   sectionDivider: {
     height: 1,
@@ -1718,4 +1771,11 @@ statLabel: {
     fontSize: 12,
     fontWeight: "700",
   },
+  extractionNote: {
+  marginTop: 8,
+  fontSize: 12,
+  lineHeight: 17,
+  color: "#7C879A",
+  fontStyle: "italic",
+},
 });
