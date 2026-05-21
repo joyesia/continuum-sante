@@ -176,9 +176,13 @@ export default function App() {
   const [shares, setShares] = useState<PatientShare[]>([]);
   const [isLoadingShares, setIsLoadingShares] = useState(false);
 
+  const [documents, setDocuments] = useState<PatientDocument[]>([]);
+  const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
+
+
   const [dashboard, setDashboard] = useState<PatientDashboard | null>(null);
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
-
+  
   const [actions, setActions] = useState<MedicalAction[]>([
     {
       id: "prise-de-sang",
@@ -572,21 +576,28 @@ useEffect(() => {
     }
   }
 
-  async function refreshDocuments() {
+async function refreshDocuments() {
   try {
     setIsLoadingDocuments(true);
 
     const response = await fetch("http://localhost:4000/documents");
 
+    const rawText = await response.text();
+
+    console.log("GET /documents status:", response.status);
+    console.log("GET /documents raw:", rawText);
+
     if (!response.ok) {
-      throw new Error("Impossible de récupérer les documents");
+      throw new Error(`Erreur API documents: ${response.status} ${rawText}`);
     }
 
-    const data = (await response.json()) as PatientDocument[];
+    const data = JSON.parse(rawText) as PatientDocument[];
+
+    console.log("GET /documents parsed:", data);
 
     setDocuments(data);
   } catch (error) {
-    console.error(error);
+    console.error("refreshDocuments error:", error);
     showAlert("Erreur", "Impossible de récupérer les documents importés.");
   } finally {
     setIsLoadingDocuments(false);
