@@ -106,13 +106,6 @@ type PatientDocument = {
   activeShareCount: number;
 };
 
-type DashboardStats = {
-  documentCount: number;
-  activeShareCount: number;
-  actionCount: number;
-  vigilanceCount: number;
-};
-
 type DashboardDocument = {
   id: string;
   filename: string;
@@ -141,6 +134,33 @@ type DashboardVigilancePoint = {
   createdAt: string;
 };
 
+type DashboardTreatment = {
+  id: string;
+  documentId?: string | null;
+  name: string;
+  dosage?: string | null;
+  instructions?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  durationDays?: number | null;
+  isLongTerm: boolean;
+  renewalDate?: string | null;
+  nextDoseDate?: string | null;
+  daysRemaining?: number | null;
+  daysBeforeRenewal?: number | null;
+  daysBeforeNextDose?: number | null;
+};
+
+type DashboardReminder = {
+  id: string;
+  documentId?: string | null;
+  title: string;
+  description?: string | null;
+  dueDate: string;
+  type: string;
+  daysUntilDue?: number | null;
+};
+
 type DashboardActiveShare = {
   id: string;
   documentId?: string | null;
@@ -159,6 +179,8 @@ type PatientDashboard = {
   latestActions: DashboardAction[];
   vigilancePoints: DashboardVigilancePoint[];
   activeShares: DashboardActiveShare[];
+  activeTreatments: DashboardTreatment[];
+  upcomingReminders: DashboardReminder[];
 };
 
 export default function App() {
@@ -641,9 +663,114 @@ async function refreshDocuments() {
             </Text>
           </View>
 
-                   <View style={styles.card}>
+			          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Points à surveiller</Text>
+
+            {!dashboard || dashboard.vigilancePoints.length === 0 ? (
+              <Text style={styles.emptyText}>
+                Aucun point de vigilance détecté pour le moment.
+              </Text>
+            ) : (
+              dashboard.vigilancePoints
+                .slice(0, 2)
+                .map((point: DashboardVigilancePoint) => (
+                  <View key={point.id} style={styles.actionItem}>
+                    <Text style={styles.actionTitle}>{point.title}</Text>
+                    <Text style={styles.actionDescription}>{point.description}</Text>
+                    <Text style={styles.source}>Source : {point.source}</Text>
+                  </View>
+                ))
+            )}
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Rappels à venir</Text>
+
+            {!dashboard || dashboard.upcomingReminders.length === 0 ? (
+              <Text style={styles.emptyText}>Aucun rappel à venir.</Text>
+            ) : (
+              dashboard.upcomingReminders
+                .slice(0, 3)
+                .map((reminder: DashboardReminder) => (
+                  <View key={reminder.id} style={styles.actionItem}>
+                    <View style={styles.cardHeaderRow}>
+                      <Text style={styles.cardTitleNoMargin}>{reminder.title}</Text>
+                      <Text style={styles.reminderPill}>
+                        {reminder.daysUntilDue === 0
+                          ? "Aujourd’hui"
+                          : reminder.daysUntilDue && reminder.daysUntilDue > 0
+                          ? `J-${reminder.daysUntilDue}`
+                          : "Échu"}
+                      </Text>
+                    </View>
+
+                    {reminder.description && (
+                      <Text style={styles.actionDescription}>
+                        {reminder.description}
+                      </Text>
+                    )}
+
+                    <Text style={styles.source}>
+                      Échéance : {new Date(reminder.dueDate).toLocaleDateString("fr-FR")}
+                    </Text>
+                  </View>
+                ))
+            )}
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Traitements en cours</Text>
+
+            {!dashboard || dashboard.activeTreatments.length === 0 ? (
+              <Text style={styles.emptyText}>Aucun traitement en cours.</Text>
+            ) : (
+              dashboard.activeTreatments
+                .slice(0, 3)
+                .map((treatment: DashboardTreatment) => (
+                  <View key={treatment.id} style={styles.actionItem}>
+                    <Text style={styles.actionTitle}>
+                      {treatment.name}
+                      {treatment.dosage ? ` — ${treatment.dosage}` : ""}
+                    </Text>
+
+                    {treatment.instructions && (
+                      <Text style={styles.actionDescription}>
+                        {treatment.instructions}
+                      </Text>
+                    )}
+
+                    {treatment.isLongTerm ? (
+                      <Text style={styles.source}>
+                        Traitement longue durée
+                        {treatment.daysBeforeRenewal !== null &&
+                        treatment.daysBeforeRenewal !== undefined
+                          ? ` — renouvellement dans ${treatment.daysBeforeRenewal} jours`
+                          : ""}
+                      </Text>
+                    ) : (
+                      <Text style={styles.source}>
+                        {treatment.daysRemaining !== null &&
+                        treatment.daysRemaining !== undefined
+                          ? `${treatment.daysRemaining} jours restants`
+                          : "Durée à confirmer"}
+                      </Text>
+                    )}
+
+                    {treatment.daysBeforeNextDose !== null &&
+                      treatment.daysBeforeNextDose !== undefined && (
+                        <Text style={styles.source}>
+                          Prochaine administration dans{" "}
+                          {treatment.daysBeforeNextDose} jours
+                        </Text>
+                      )}
+                  </View>
+                ))
+            )}
+          </View>
+
+          <View style={styles.card}>
             <View style={styles.cardHeaderRow}>
-              <Text style={styles.cardTitleNoMargin}>Synthèse du carnet</Text>
+              <Text style={styles.cardTitleNoMargin}>Vue d’ensemble</Text>
 
               <TouchableOpacity onPress={refreshDashboard} disabled={isLoadingDashboard}>
                 <Text style={styles.refreshText}>
@@ -655,47 +782,29 @@ async function refreshDocuments() {
             {dashboard ? (
               <View style={styles.statsGrid}>
                 <View style={styles.statBox}>
-                  <Text style={styles.statNumber}>{dashboard.stats.documentCount}</Text>
-                  <Text style={styles.statLabel}>Documents</Text>
-                </View>
-
-                <View style={styles.statBox}>
-                  <Text style={styles.statNumber}>{dashboard.stats.activeShareCount}</Text>
-                  <Text style={styles.statLabel}>Partages actifs</Text>
-                </View>
-
-                <View style={styles.statBox}>
-                  <Text style={styles.statNumber}>{dashboard.stats.actionCount}</Text>
-                  <Text style={styles.statLabel}>Actions</Text>
-                </View>
-
-                <View style={styles.statBox}>
                   <Text style={styles.statNumber}>{dashboard.stats.vigilanceCount}</Text>
                   <Text style={styles.statLabel}>Vigilances</Text>
+                </View>
+
+                <View style={styles.statBox}>
+                  <Text style={styles.statNumber}>{dashboard.stats.reminderCount}</Text>
+                  <Text style={styles.statLabel}>Rappels</Text>
+                </View>
+
+                <View style={styles.statBox}>
+                  <Text style={styles.statNumber}>{dashboard.stats.treatmentCount}</Text>
+                  <Text style={styles.statLabel}>Traitements</Text>
+                </View>
+
+                <View style={styles.statBox}>
+                  <Text style={styles.statNumber}>{dashboard.stats.documentCount}</Text>
+                  <Text style={styles.statLabel}>Documents</Text>
                 </View>
               </View>
             ) : (
               <Text style={styles.emptyText}>
                 Aucune donnée de dashboard chargée pour le moment.
               </Text>
-            )}
-          </View>
-
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Documents récents</Text>
-
-            {!dashboard || dashboard.recentDocuments.length === 0 ? (
-              <Text style={styles.emptyText}>Aucun document importé.</Text>
-            ) : (
-              dashboard.recentDocuments.slice(0, 2).map((document: DashboardDocument) => (
-                <View key={document.id} style={styles.actionItem}>
-                  <Text style={styles.actionTitle}>{document.documentType}</Text>
-                  <Text style={styles.actionDescription}>{document.filename}</Text>
-                  <Text style={styles.source}>
-                    Importé le {new Date(document.createdAt).toLocaleString("fr-FR")}
-                  </Text>
-                </View>
-              ))
             )}
           </View>
 
@@ -716,18 +825,22 @@ async function refreshDocuments() {
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Points de vigilance</Text>
+            <Text style={styles.cardTitle}>Documents récents</Text>
 
-            {!dashboard || dashboard.vigilancePoints.length === 0 ? (
-              <Text style={styles.emptyText}>Aucun point de vigilance détecté.</Text>
+            {!dashboard || dashboard.recentDocuments.length === 0 ? (
+              <Text style={styles.emptyText}>Aucun document importé.</Text>
             ) : (
-              dashboard.vigilancePoints.slice(0, 2).map((point: DashboardVigilancePoint) => (
-                <View key={point.id} style={styles.actionItem}>
-                  <Text style={styles.actionTitle}>{point.title}</Text>
-                  <Text style={styles.actionDescription}>{point.description}</Text>
-                  <Text style={styles.source}>Source : {point.source}</Text>
-                </View>
-              ))
+              dashboard.recentDocuments
+                .slice(0, 2)
+                .map((document: DashboardDocument) => (
+                  <View key={document.id} style={styles.actionItem}>
+                    <Text style={styles.actionTitle}>{document.documentType}</Text>
+                    <Text style={styles.actionDescription}>{document.filename}</Text>
+                    <Text style={styles.source}>
+                      Importé le {new Date(document.createdAt).toLocaleString("fr-FR")}
+                    </Text>
+                  </View>
+                ))
             )}
           </View>
 
@@ -737,16 +850,18 @@ async function refreshDocuments() {
             {!dashboard || dashboard.activeShares.length === 0 ? (
               <Text style={styles.emptyText}>Aucun partage actif.</Text>
             ) : (
-              dashboard.activeShares.slice(0, 2).map((share: DashboardActiveShare) => (
-                <View key={share.id} style={styles.actionItem}>
-                  <Text style={styles.actionTitle}>{share.documentType}</Text>
-                  <Text style={styles.actionDescription}>{share.actionTitle}</Text>
-                  <Text style={styles.source}>
-                    Consulté {share.accessCount} fois — expire le{" "}
-                    {new Date(share.expiresAt).toLocaleString("fr-FR")}
-                  </Text>
-                </View>
-              ))
+              dashboard.activeShares
+                .slice(0, 2)
+                .map((share: DashboardActiveShare) => (
+                  <View key={share.id} style={styles.actionItem}>
+                    <Text style={styles.actionTitle}>{share.documentType}</Text>
+                    <Text style={styles.actionDescription}>{share.actionTitle}</Text>
+                    <Text style={styles.source}>
+                      Consulté {share.accessCount} fois — expire le{" "}
+                      {new Date(share.expiresAt).toLocaleString("fr-FR")}
+                    </Text>
+                  </View>
+                ))
             )}
           </View>
 
@@ -1483,6 +1598,16 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: "#E8EDF5",
     marginVertical: 14,
+  },
+    reminderPill: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    fontSize: 12,
+    fontWeight: "900",
+    overflow: "hidden",
+    backgroundColor: "#FEF3C7",
+    color: "#92400E",
   },
   refreshText: {
   color: "#4776A8",
