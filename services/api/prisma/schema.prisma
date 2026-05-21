@@ -25,6 +25,39 @@ model Document {
   createdAt              DateTime @default(now())
 
   shares                 SharedBrief[]
+  treatments             Treatment[]
+  reminders              Reminder[] 
+}
+
+model Treatment {
+  id             String    @id
+  documentId     String?
+  name           String
+  dosage         String?
+  instructions   String?
+  startDate      DateTime?
+  endDate        DateTime?
+  durationDays   Int?
+  isLongTerm     Boolean   @default(false)
+  renewalDate    DateTime?
+  nextDoseDate   DateTime?
+  status         String    @default("active")
+  createdAt      DateTime  @default(now())
+
+  document       Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+}
+
+model Reminder {
+  id          String    @id
+  documentId  String?
+  title       String
+  description String?
+  dueDate     DateTime
+  type        String
+  status      String    @default("pending")
+  createdAt   DateTime  @default(now())
+
+  document    Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
 }
 
 model SharedBrief {

@@ -91,10 +91,25 @@ server.get("/health", async () => {
   };
 });
 
+function addDays(date: Date, days: number): Date {
+  const result = new Date(date);
+  result.setDate(result.getDate() + days);
+  return result;
+}
+
+function daysUntil(date: Date | null): number | null {
+  if (!date) {
+    return null;
+  }
+
+  const diff = date.getTime() - Date.now();
+  return Math.ceil(diff / (24 * 60 * 60 * 1000));
+}
+
 server.get("/dashboard", async () => {
   const now = Date.now();
 
-  const [documents, shares] = await Promise.all([
+  const [documents, shares, treatments, reminders] = await Promise.all([
     prisma.document.findMany({
       orderBy: {
         createdAt: "desc",
@@ -116,67 +131,85 @@ server.get("/dashboard", async () => {
         },
       },
     }),
+
+    prisma.treatment.findMany({
+      where: {
+        status: "active",
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    }),
+
+    prisma.reminder.findMany({
+      where: {
+        status: "pending",
+      },
+      orderBy: {
+        dueDate: "asc",
+      },
+    }),
   ]);
+
+  function uniqueBy<T>(items: T[], getKey: (item: T) => string): T[] {
+    const seen = new Set<string>();
+
+    return items.filter((item) => {
+      const key = getKey(item);
+
+      if (seen.has(key)) {
+        return false;
+      }
+
+      seen.add(key);
+      return true;
+    });
+  }
 
   const activeShares = shares.filter(
     (share) => !share.revokedAt && share.expiresAt.getTime() > now
   );
 
-  function uniqueBy<T>(items: T[], getKey: (item: T) => string): T[] {
-  const seen = new Set<string>();
-
-  return items.filter((item) => {
-    const key = getKey(item);
-
-    if (seen.has(key)) {
-      return false;
-    }
-
-    seen.add(key);
-    return true;
-  });
-}
-
   const recentDocuments = uniqueBy(
-  documents.map((document) => ({
-    id: document.id,
-    filename: document.filename,
-    documentType: document.documentType,
-    confidence: document.confidence,
-    createdAt: document.createdAt,
-    source: document.source,
-    shareCount: document.shares.length,
-  })),
-  (document) => `${document.filename}-${document.documentType}-${document.source}`
-).slice(0, 3);
+    documents.map((document) => ({
+      id: document.id,
+      filename: document.filename,
+      documentType: document.documentType,
+      confidence: document.confidence,
+      createdAt: document.createdAt,
+      source: document.source,
+      shareCount: document.shares.length,
+    })),
+    (document) => `${document.filename}-${document.documentType}-${document.source}`
+  ).slice(0, 3);
 
   const latestActions = uniqueBy(
-  documents
-    .filter((document) => document.actionTitle)
-    .map((document) => ({
-      id: document.id,
-      title: document.actionTitle,
-      description: document.actionDescription,
-      source: document.source,
-      documentType: document.documentType,
-      createdAt: document.createdAt,
-    })),
-  (action) => `${action.title}-${action.description}`
-).slice(0, 5);
+    documents
+      .filter((document) => document.actionTitle)
+      .map((document) => ({
+        id: document.id,
+        title: document.actionTitle,
+        description: document.actionDescription,
+        source: document.source,
+        documentType: document.documentType,
+        createdAt: document.createdAt,
+      })),
+    (action) => `${action.title}-${action.description}`
+  ).slice(0, 5);
 
-const vigilancePoints = uniqueBy(
-  documents
-    .filter((document) => document.observationTitle)
-    .map((document) => ({
-      id: document.id,
-      title: document.observationTitle,
-      description: document.observationDescription,
-      source: document.source,
-      documentType: document.documentType,
-      createdAt: document.createdAt,
-    })),
-  (point) => `${point.title}-${point.description}`
-).slice(0, 5);
+  const vigilancePoints = uniqueBy(
+    documents
+      .filter((document) => document.observationTitle)
+      .map((document) => ({
+        id: document.id,
+        title: document.observationTitle,
+        description: document.observationDescription,
+        source: document.source,
+        documentType: document.documentType,
+        createdAt: document.createdAt,
+      })),
+    (point) => `${point.title}-${point.description}`
+  ).slice(0, 5);
 
   const activeShareSummaries = activeShares.slice(0, 5).map((share) => ({
     id: share.id,
@@ -190,17 +223,61 @@ const vigilancePoints = uniqueBy(
     latestAccessAt: share.accessLogs[0]?.openedAt ?? null,
   }));
 
+  const activeTreatments = treatments
+    .filter((treatment) => {
+      if (treatment.isLongTerm) {
+        return true;
+      }
+
+      if (!treatment.endDate) {
+        return true;
+      }
+
+      return treatment.endDate.getTime() >= now;
+    })
+    .slice(0, 5)
+    .map((treatment) => ({
+      id: treatment.id,
+      documentId: treatment.documentId,
+      name: treatment.name,
+      dosage: treatment.dosage,
+      instructions: treatment.instructions,
+      startDate: treatment.startDate,
+      endDate: treatment.endDate,
+      durationDays: treatment.durationDays,
+      isLongTerm: treatment.isLongTerm,
+      renewalDate: treatment.renewalDate,
+      nextDoseDate: treatment.nextDoseDate,
+      daysRemaining: daysUntil(treatment.endDate),
+      daysBeforeRenewal: daysUntil(treatment.renewalDate),
+      daysBeforeNextDose: daysUntil(treatment.nextDoseDate),
+    }));
+
+  const upcomingReminders = reminders.slice(0, 5).map((reminder) => ({
+    id: reminder.id,
+    documentId: reminder.documentId,
+    title: reminder.title,
+    description: reminder.description,
+    dueDate: reminder.dueDate,
+    type: reminder.type,
+    daysUntilDue: daysUntil(reminder.dueDate),
+  }));
+
   return {
     stats: {
       documentCount: documents.length,
       activeShareCount: activeShares.length,
       actionCount: latestActions.length,
       vigilanceCount: vigilancePoints.length,
+      treatmentCount: activeTreatments.length,
+      reminderCount: upcomingReminders.length,
     },
     recentDocuments,
     latestActions,
     vigilancePoints,
     activeShares: activeShareSummaries,
+    activeTreatments,
+    upcomingReminders,
   };
 });
 
@@ -299,11 +376,122 @@ server.post("/documents/extract", async (request, reply) => {
     },
   });
 
+    const now = new Date();
+
+  if (extraction.actionTitle && extraction.documentType !== "Document médical") {
+    await prisma.reminder.create({
+      data: {
+        id: crypto.randomUUID(),
+        documentId: document.id,
+        title: extraction.actionTitle,
+        description: extraction.actionDescription,
+        dueDate: addDays(now, 10),
+        type: "follow_up",
+        status: "pending",
+      },
+    });
+  }
+
+  if (extraction.hasMedication && extraction.medicationName.trim().length > 0) {
+    const medicationName = extraction.medicationName.trim();
+    const normalizedMedicationName = medicationName.toLowerCase();
+
+    const isLongTerm =
+      normalizedMedicationName.includes("ramipril") ||
+      normalizedMedicationName.includes("levothyrox") ||
+      normalizedMedicationName.includes("atorvastatine") ||
+      normalizedMedicationName.includes("metformine");
+
+    const startDate = now;
+    const endDate = isLongTerm ? null : addDays(startDate, 15);
+    const renewalDate = isLongTerm ? addDays(startDate, 30) : endDate;
+
+    await prisma.treatment.create({
+      data: {
+        id: crypto.randomUUID(),
+        documentId: document.id,
+        name: medicationName,
+        dosage: extraction.medicationDosage || "",
+        instructions: extraction.medicationInstructions || "",
+        startDate,
+        endDate,
+        durationDays: isLongTerm ? null : 15,
+        isLongTerm,
+        renewalDate,
+        nextDoseDate: addDays(startDate, 1),
+        status: "active",
+      },
+    });
+
+    if (renewalDate) {
+      await prisma.reminder.create({
+        data: {
+          id: crypto.randomUUID(),
+          documentId: document.id,
+          title: `Renouvellement ${medicationName}`,
+          description: isLongTerm
+            ? "Renouvellement à anticiper pour un traitement longue durée."
+            : "Fin de traitement ou renouvellement à vérifier.",
+          dueDate: renewalDate,
+          type: "renewal",
+          status: "pending",
+        },
+      });
+    }
+  }
+
   return reply.send({
     ...extraction,
     documentId: document.id,
     filename: document.filename,
   });
+});
+
+server.get("/treatments", async () => {
+  const treatments = await prisma.treatment.findMany({
+    orderBy: {
+      createdAt: "desc",
+    },
+  });
+
+  return treatments.map((treatment) => ({
+    id: treatment.id,
+    documentId: treatment.documentId,
+    name: treatment.name,
+    dosage: treatment.dosage,
+    instructions: treatment.instructions,
+    startDate: treatment.startDate,
+    endDate: treatment.endDate,
+    durationDays: treatment.durationDays,
+    isLongTerm: treatment.isLongTerm,
+    renewalDate: treatment.renewalDate,
+    nextDoseDate: treatment.nextDoseDate,
+    status: treatment.status,
+    createdAt: treatment.createdAt,
+    daysRemaining: daysUntil(treatment.endDate),
+    daysBeforeRenewal: daysUntil(treatment.renewalDate),
+    daysBeforeNextDose: daysUntil(treatment.nextDoseDate),
+  }));
+});
+
+server.get("/reminders", async () => {
+  const reminders = await prisma.reminder.findMany({
+    orderBy: {
+      dueDate: "asc",
+    },
+  });
+
+  return reminders.map((reminder) => ({
+    id: reminder.id,
+    documentId: reminder.documentId,
+    title: reminder.title,
+    description: reminder.description,
+    dueDate: reminder.dueDate,
+    type: reminder.type,
+    status: reminder.status,
+    createdAt: reminder.createdAt,
+    daysUntilDue: daysUntil(reminder.dueDate),
+  }));
 });
 
 server.get("/shares", async () => {
