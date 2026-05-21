@@ -626,6 +626,42 @@ async function refreshDocuments() {
   }
 }
 
+async function deleteDocumentById(documentId: string) {
+  const confirmed =
+    Platform.OS === "web" && typeof window !== "undefined"
+      ? window.confirm(
+          "Supprimer ce document ? Les rappels et traitements associés seront aussi supprimés. Les partages liés seront révoqués."
+        )
+      : true;
+
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`http://localhost:4000/documents/${documentId}`, {
+      method: "DELETE",
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Suppression échouée ${response.status}: ${errorText}`);
+    }
+
+    setDocuments((currentDocuments: PatientDocument[]) =>
+      currentDocuments.filter((document) => document.id !== documentId)
+    );
+
+    await refreshDocuments();
+    await refreshDashboard();
+
+    showAlert("Document supprimé", "Le document et ses données associées ont été supprimés.");
+  } catch (error) {
+    console.error(error);
+    showAlert("Erreur", "Impossible de supprimer ce document.");
+  }
+}
+
   async function revokeShareById(shareId: string) {
     try {
       const response = await fetch(`http://localhost:4000/shares/${shareId}/revoke`, {
@@ -1371,7 +1407,13 @@ async function refreshDocuments() {
                 </Text>
 
                 <Text style={styles.source}>ID : {document.id.slice(0, 8)}...</Text>
-              </View>
+				
+				<TouchableOpacity
+ 				  style={styles.dangerButton}
+				  onPress={() => deleteDocumentById(document.id)}
+>				 <Text style={styles.dangerButtonText}>Supprimer le document</Text>
+				</TouchableOpacity>
+			  </View>
             ))
           )}
 

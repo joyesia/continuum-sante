@@ -74,7 +74,7 @@ const server = Fastify({
 
 await server.register(cors, {
   origin: true,
-  methods: ["GET", "POST", "PATCH", "OPTIONS"],
+  methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type"],
 });
 
@@ -332,6 +332,60 @@ server.get("/documents", async () => {
       activeShareCount: activeShares.length,
     };
   });
+});
+
+server.delete("/documents/:id", async (request, reply) => {
+  const { id } = request.params as { id: string };
+
+  const document = await prisma.document.findUnique({
+    where: { id },
+  });
+
+  if (!document) {
+    return reply.code(404).send({
+      error: "Document not found",
+    });
+  }
+
+  await prisma.reminder.deleteMany({
+    where: {
+      documentId: id,
+    },
+  });
+
+  await prisma.treatment.deleteMany({
+    where: {
+      documentId: id,
+    },
+  });
+
+  await prisma.sharedBrief.updateMany({
+    where: {
+      documentId: id,
+      revokedAt: null,
+    },
+    data: {
+      revokedAt: new Date(),
+    },
+  });
+
+  await prisma.sharedBrief.updateMany({
+    where: {
+      documentId: id,
+    },
+    data: {
+      documentId: null,
+    },
+  });
+
+  await prisma.document.delete({
+    where: { id },
+  });
+
+  return {
+    deleted: true,
+    documentId: id,
+  };
 });
 
 server.post("/documents/extract", async (request, reply) => {
