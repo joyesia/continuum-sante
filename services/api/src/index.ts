@@ -9,6 +9,130 @@ const require = createRequire(import.meta.url);
 const pdfParseModule = require("pdf-parse");
 const prisma = new PrismaClient();
 
+const API_PORT = 4000;
+const SHARE_CODE = "739421";
+const SHARE_DURATION_HOURS = 24;
+const DEFAULT_FOLLOW_UP_DAYS = 10;
+
+const server = Fastify({
+  logger: true,
+});
+
+type SharedBriefRequest = {
+  id?: string;
+  code?: string;
+  documentId?: string;
+  documentType?: string;
+  actionTitle?: string;
+  actionDescription?: string;
+  observationTitle?: string;
+  observationDescription?: string;
+  medicationName?: string;
+  medicationDosage?: string;
+  source?: string;
+  createdAt?: string;
+  expiresAt?: string;
+};
+
+type ExtractedMedicalData = {
+  documentType: string;
+  confidence: number;
+  actionTitle: string;
+  actionDescription: string;
+  actionSource: string;
+  hasMedication: boolean;
+  medicationName: string;
+  medicationDosage: string;
+  medicationInstructions: string;
+  medicationSource: string;
+  hasObservation: boolean;
+  observationTitle: string;
+  observationDescription: string;
+  observationSource: string;
+  extractedTextPreview: string;
+};
+
+type MedicationRule = {
+  aliases: string[];
+  name: string;
+  defaultDosage?: string;
+  defaultInstructions: string;
+  defaultDurationDays: number | null;
+  isLongTerm: boolean;
+  renewalAfterDays: number | null;
+  nextDoseAfterDays: number | null;
+};
+
+const medicationRules: MedicationRule[] = [
+  {
+    aliases: ["ramipril"],
+    name: "Ramipril",
+    defaultDosage: "2,5 mg",
+    defaultInstructions: "1 comprimé le matin, à heure fixe.",
+    defaultDurationDays: null,
+    isLongTerm: true,
+    renewalAfterDays: 30,
+    nextDoseAfterDays: 1,
+  },
+  {
+    aliases: ["doliprane", "paracetamol", "paracétamol"],
+    name: "Doliprane",
+    defaultInstructions: "Posologie à confirmer avec le médecin ou le pharmacien.",
+    defaultDurationDays: 5,
+    isLongTerm: false,
+    renewalAfterDays: null,
+    nextDoseAfterDays: null,
+  },
+  {
+    aliases: ["amoxicilline", "amoxicillin"],
+    name: "Amoxicilline",
+    defaultInstructions: "Posologie et durée à confirmer avec le médecin.",
+    defaultDurationDays: 7,
+    isLongTerm: false,
+    renewalAfterDays: null,
+    nextDoseAfterDays: null,
+  },
+  {
+    aliases: ["levothyrox", "levothyroxine", "lévothyroxine"],
+    name: "Levothyrox",
+    defaultInstructions: "Traitement longue durée. Posologie à confirmer avec le médecin.",
+    defaultDurationDays: null,
+    isLongTerm: true,
+    renewalAfterDays: 30,
+    nextDoseAfterDays: 1,
+  },
+  {
+    aliases: ["atorvastatine", "atorvastatin"],
+    name: "Atorvastatine",
+    defaultInstructions: "Traitement longue durée. Posologie à confirmer avec le médecin.",
+    defaultDurationDays: null,
+    isLongTerm: true,
+    renewalAfterDays: 30,
+    nextDoseAfterDays: 1,
+  },
+  {
+    aliases: ["metformine", "metformin"],
+    name: "Metformine",
+    defaultInstructions: "Traitement longue durée. Posologie à confirmer avec le médecin.",
+    defaultDurationDays: null,
+    isLongTerm: true,
+    renewalAfterDays: 30,
+    nextDoseAfterDays: 1,
+  },
+];
+
+await server.register(cors, {
+  origin: true,
+  methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type"],
+});
+
+await server.register(multipart, {
+  limits: {
+    fileSize: 10 * 1024 * 1024,
+  },
+});
+
 async function extractPdfText(buffer: Buffer): Promise<string> {
   if (typeof pdfParseModule === "function") {
     const result = await pdfParseModule(buffer);
@@ -34,62 +158,12 @@ async function extractPdfText(buffer: Buffer): Promise<string> {
   throw new Error("Unsupported pdf-parse export format");
 }
 
-type SharedBrief = {
-  id: string;
-  code: string;
-  documentId?: string;
-  documentType: string;
-  actionTitle: string;
-  actionDescription: string;
-  observationTitle?: string;
-  observationDescription?: string;
-  medicationName?: string;
-  medicationDosage?: string;
-  source: string;
-  createdAt: string;
-  expiresAt: string;
-};
-
-type ExtractedMedicalData = {
-  documentType: string;
-  confidence: number;
-  actionTitle: string;
-  actionDescription: string;
-  actionSource: string;
-  hasMedication: boolean;
-  medicationName: string;
-  medicationDosage: string;
-  medicationInstructions: string;
-  medicationSource: string;
-  hasObservation: boolean;
-  observationTitle: string;
-  observationDescription: string;
-  observationSource: string;
-  extractedTextPreview: string;
-};
-
-const server = Fastify({
-  logger: true,
-});
-
-await server.register(cors, {
-  origin: true,
-  methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type"],
-});
-
-await server.register(multipart, {
-  limits: {
-    fileSize: 10 * 1024 * 1024,
-  },
-});
-
-server.get("/health", async () => {
-  return {
-    ok: true,
-    service: "continuum-api",
-  };
-});
+function normalizeText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
 
 function addDays(date: Date, days: number): Date {
   const result = new Date(date);
@@ -105,6 +179,325 @@ function daysUntil(date: Date | null): number | null {
   const diff = date.getTime() - Date.now();
   return Math.ceil(diff / (24 * 60 * 60 * 1000));
 }
+
+function uniqueBy<T>(items: T[], getKey: (item: T) => string): T[] {
+  const seen = new Set<string>();
+
+  return items.filter((item) => {
+    const key = getKey(item);
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
+function detectSource(filename: string, extractedText: string): string {
+  const dateMatch = extractedText.match(/\b\d{2}\/\d{2}\/\d{4}\b/);
+  const detectedDate = dateMatch?.[0];
+
+  if (detectedDate) {
+    return `${filename} — ${detectedDate}`;
+  }
+
+  return filename;
+}
+
+function detectMedicationRule(normalizedText: string): MedicationRule | null {
+  return (
+    medicationRules.find((rule) =>
+      rule.aliases.some((alias) => normalizedText.includes(normalizeText(alias)))
+    ) ?? null
+  );
+}
+
+function detectMedicationDosage(
+  normalizedText: string,
+  rule: MedicationRule
+): string {
+  if (rule.name === "Ramipril") {
+    if (normalizedText.includes("2,5") || normalizedText.includes("2.5")) {
+      return "2,5 mg";
+    }
+  }
+
+  const dosageMatch = normalizedText.match(/\b\d+(?:[,.]\d+)?\s?(?:mg|g|ml)\b/);
+
+  if (dosageMatch) {
+    return dosageMatch[0].replace(".", ",");
+  }
+
+  return rule.defaultDosage ?? "";
+}
+
+function extractMedicalDataFromText({
+  filename,
+  extractedText,
+}: {
+  filename: string;
+  extractedText: string;
+}): ExtractedMedicalData {
+  const normalizedFilename = normalizeText(filename);
+  const normalizedText = normalizeText(extractedText);
+  const source = detectSource(filename, extractedText);
+  const medicationRule = detectMedicationRule(normalizedText);
+
+  const looksLikePrescription =
+    Boolean(medicationRule) ||
+    normalizedFilename.includes("ordonnance") ||
+    normalizedText.includes("ordonnance") ||
+    normalizedText.includes("prescription") ||
+    normalizedText.includes("traitement prescrit");
+
+  if (looksLikePrescription) {
+    return buildPrescriptionExtraction({
+      extractedText,
+      normalizedText,
+      source,
+      medicationRule,
+    });
+  }
+
+  const looksLikeBiology =
+    normalizedFilename.includes("analyse") ||
+    normalizedFilename.includes("biologie") ||
+    normalizedFilename.includes("biologique") ||
+    normalizedFilename.includes("bilan") ||
+    normalizedText.includes("creatinine") ||
+    normalizedText.includes("potassium") ||
+    normalizedText.includes("glycemie") ||
+    normalizedText.includes("dfg");
+
+  if (looksLikeBiology) {
+    return buildBiologyExtraction({
+      extractedText,
+      normalizedText,
+      source,
+    });
+  }
+
+  return buildFallbackExtraction({
+    extractedText,
+    source,
+  });
+}
+
+function buildPrescriptionExtraction({
+  extractedText,
+  normalizedText,
+  source,
+  medicationRule,
+}: {
+  extractedText: string;
+  normalizedText: string;
+  source: string;
+  medicationRule: MedicationRule | null;
+}): ExtractedMedicalData {
+  const hasMedication = Boolean(medicationRule);
+  const medicationName = medicationRule?.name ?? "";
+  const medicationDosage = medicationRule
+    ? detectMedicationDosage(normalizedText, medicationRule)
+    : "";
+  const medicationInstructions = medicationRule?.defaultInstructions ?? "";
+
+  const asksForRenalMonitoring =
+    normalizedText.includes("bilan renal") ||
+    normalizedText.includes("potassium") ||
+    normalizedText.includes("creatinine");
+
+  const actionTitle = hasMedication
+    ? `Suivre le traitement ${medicationName}`
+    : "Ordonnance à vérifier";
+
+  const actionDescription = hasMedication
+    ? "Ordonnance détectée avec un traitement. Les modalités doivent être confirmées avec un professionnel de santé."
+    : "Ordonnance détectée. Vérifiez les informations extraites avant de les ajouter au carnet.";
+
+  return {
+    documentType: "Ordonnance",
+    confidence: extractedText.length > 0 ? 0.92 : 0.74,
+    actionTitle,
+    actionDescription,
+    actionSource: source,
+    hasMedication,
+    medicationName,
+    medicationDosage,
+    medicationInstructions,
+    medicationSource: hasMedication ? source : "",
+    hasObservation: asksForRenalMonitoring,
+    observationTitle: asksForRenalMonitoring
+      ? "Surveillance bilan rénal + potassium"
+      : "",
+    observationDescription: asksForRenalMonitoring
+      ? "Surveillance demandée après introduction du traitement. À confirmer avec le médecin."
+      : "",
+    observationSource: asksForRenalMonitoring ? source : "",
+    extractedTextPreview: extractedText.slice(0, 900),
+  };
+}
+
+function buildBiologyExtraction({
+  extractedText,
+  normalizedText,
+  source,
+}: {
+  extractedText: string;
+  normalizedText: string;
+  source: string;
+}): ExtractedMedicalData {
+  const hasHighGlucose = normalizedText.includes("glycemie");
+
+  return {
+    documentType: "Analyse biologique",
+    confidence: extractedText.length > 0 ? 0.94 : 0.78,
+    actionTitle: "Discuter le bilan rénal + potassium avec le médecin",
+    actionDescription:
+      "Analyse détectée comme bilan de suivi. Les résultats doivent être interprétés par un professionnel de santé.",
+    actionSource: source,
+    hasMedication: false,
+    medicationName: "",
+    medicationDosage: "",
+    medicationInstructions: "",
+    medicationSource: "",
+    hasObservation: hasHighGlucose,
+    observationTitle: hasHighGlucose ? "Glycémie à jeun limite haute" : "",
+    observationDescription: hasHighGlucose
+      ? "Point de vigilance détecté dans le compte rendu. À recontrôler ou contextualiser avec le médecin. Ceci n’est pas un diagnostic."
+      : "",
+    observationSource: hasHighGlucose ? source : "",
+    extractedTextPreview: extractedText.slice(0, 900),
+  };
+}
+
+function buildFallbackExtraction({
+  extractedText,
+  source,
+}: {
+  extractedText: string;
+  source: string;
+}): ExtractedMedicalData {
+  return {
+    documentType: "Document médical",
+    confidence: extractedText.length > 0 ? 0.65 : 0.35,
+    actionTitle: "Document médical à vérifier",
+    actionDescription:
+      "Le document a été importé, mais l’extraction automatique reste incertaine. Vérifiez les informations avant de les ajouter au carnet.",
+    actionSource: source,
+    hasMedication: false,
+    medicationName: "",
+    medicationDosage: "",
+    medicationInstructions: "",
+    medicationSource: "",
+    hasObservation: false,
+    observationTitle: "",
+    observationDescription: "",
+    observationSource: "",
+    extractedTextPreview: extractedText.slice(0, 900),
+  };
+}
+
+async function createReminderFromExtraction({
+  documentId,
+  extraction,
+  now,
+}: {
+  documentId: string;
+  extraction: ExtractedMedicalData;
+  now: Date;
+}) {
+  if (!extraction.actionTitle || extraction.documentType === "Document médical") {
+    return;
+  }
+
+  await prisma.reminder.create({
+    data: {
+      id: crypto.randomUUID(),
+      documentId,
+      title: extraction.actionTitle,
+      description: extraction.actionDescription,
+      dueDate: addDays(now, DEFAULT_FOLLOW_UP_DAYS),
+      type: "follow_up",
+      status: "pending",
+    },
+  });
+}
+
+async function createTreatmentFromExtraction({
+  documentId,
+  extraction,
+  now,
+}: {
+  documentId: string;
+  extraction: ExtractedMedicalData;
+  now: Date;
+}) {
+  if (!extraction.hasMedication || extraction.medicationName.trim().length === 0) {
+    return;
+  }
+
+  const medicationName = extraction.medicationName.trim();
+  const normalizedMedicationName = normalizeText(medicationName);
+  const medicationRule = detectMedicationRule(normalizedMedicationName);
+
+  const isLongTerm = medicationRule?.isLongTerm ?? false;
+  const durationDays = medicationRule?.defaultDurationDays ?? 15;
+  const renewalAfterDays = medicationRule?.renewalAfterDays;
+  const nextDoseAfterDays = medicationRule?.nextDoseAfterDays;
+
+  const startDate = now;
+  const endDate = isLongTerm ? null : addDays(startDate, durationDays);
+  const renewalDate = renewalAfterDays
+    ? addDays(startDate, renewalAfterDays)
+    : endDate;
+  const nextDoseDate = nextDoseAfterDays
+    ? addDays(startDate, nextDoseAfterDays)
+    : null;
+
+  await prisma.treatment.create({
+    data: {
+      id: crypto.randomUUID(),
+      documentId,
+      name: medicationName,
+      dosage: extraction.medicationDosage || "",
+      instructions: extraction.medicationInstructions || "",
+      startDate,
+      endDate,
+      durationDays: isLongTerm ? null : durationDays,
+      isLongTerm,
+      renewalDate,
+      nextDoseDate,
+      status: "active",
+    },
+  });
+
+  if (!renewalDate) {
+    return;
+  }
+
+  await prisma.reminder.create({
+    data: {
+      id: crypto.randomUUID(),
+      documentId,
+      title: `Renouvellement ${medicationName}`,
+      description: isLongTerm
+        ? "Renouvellement à anticiper pour un traitement longue durée."
+        : "Fin de traitement ou renouvellement à vérifier.",
+      dueDate: renewalDate,
+      type: "renewal",
+      status: "pending",
+    },
+  });
+}
+
+server.get("/health", async () => {
+  return {
+    ok: true,
+    service: "continuum-api",
+  };
+});
 
 server.get("/dashboard", async () => {
   const now = Date.now();
@@ -150,21 +543,6 @@ server.get("/dashboard", async () => {
       },
     }),
   ]);
-
-  function uniqueBy<T>(items: T[], getKey: (item: T) => string): T[] {
-    const seen = new Set<string>();
-
-    return items.filter((item) => {
-      const key = getKey(item);
-
-      if (seen.has(key)) {
-        return false;
-      }
-
-      seen.add(key);
-      return true;
-    });
-  }
 
   const activeShares = shares.filter(
     (share) => !share.revokedAt && share.expiresAt.getTime() > now
@@ -298,21 +676,6 @@ server.get("/documents", async () => {
       (share) => !share.revokedAt && share.expiresAt.getTime() > now
     );
 
-	function uniqueBy<T>(items: T[], getKey: (item: T) => string): T[] {
-  const seen = new Set<string>();
-
-  return items.filter((item) => {
-    const key = getKey(item);
-
-    if (seen.has(key)) {
-      return false;
-    }
-
-    seen.add(key);
-    return true;
-  });
-}
-
     return {
       id: document.id,
       filename: document.filename,
@@ -430,69 +793,19 @@ server.post("/documents/extract", async (request, reply) => {
     },
   });
 
-    const now = new Date();
+  const now = new Date();
 
-  if (extraction.actionTitle && extraction.documentType !== "Document médical") {
-    await prisma.reminder.create({
-      data: {
-        id: crypto.randomUUID(),
-        documentId: document.id,
-        title: extraction.actionTitle,
-        description: extraction.actionDescription,
-        dueDate: addDays(now, 10),
-        type: "follow_up",
-        status: "pending",
-      },
-    });
-  }
+  await createReminderFromExtraction({
+    documentId: document.id,
+    extraction,
+    now,
+  });
 
-  if (extraction.hasMedication && extraction.medicationName.trim().length > 0) {
-    const medicationName = extraction.medicationName.trim();
-    const normalizedMedicationName = medicationName.toLowerCase();
-
-    const isLongTerm =
-      normalizedMedicationName.includes("ramipril") ||
-      normalizedMedicationName.includes("levothyrox") ||
-      normalizedMedicationName.includes("atorvastatine") ||
-      normalizedMedicationName.includes("metformine");
-
-    const startDate = now;
-    const endDate = isLongTerm ? null : addDays(startDate, 15);
-    const renewalDate = isLongTerm ? addDays(startDate, 30) : endDate;
-
-    await prisma.treatment.create({
-      data: {
-        id: crypto.randomUUID(),
-        documentId: document.id,
-        name: medicationName,
-        dosage: extraction.medicationDosage || "",
-        instructions: extraction.medicationInstructions || "",
-        startDate,
-        endDate,
-        durationDays: isLongTerm ? null : 15,
-        isLongTerm,
-        renewalDate,
-        nextDoseDate: addDays(startDate, 1),
-        status: "active",
-      },
-    });
-
-    if (renewalDate) {
-      await prisma.reminder.create({
-        data: {
-          id: crypto.randomUUID(),
-          documentId: document.id,
-          title: `Renouvellement ${medicationName}`,
-          description: isLongTerm
-            ? "Renouvellement à anticiper pour un traitement longue durée."
-            : "Fin de traitement ou renouvellement à vérifier.",
-          dueDate: renewalDate,
-          type: "renewal",
-          status: "pending",
-        },
-      });
-    }
-  }
+  await createTreatmentFromExtraction({
+    documentId: document.id,
+    extraction,
+    now,
+  });
 
   return reply.send({
     ...extraction,
@@ -585,13 +898,14 @@ server.get("/shares", async () => {
 });
 
 server.post("/shares", async (request, reply) => {
-  const body = request.body as Partial<SharedBrief>;
+  const body = request.body as Partial<SharedBriefRequest>;
 
   const id = crypto.randomUUID();
-  const code = "739421";
-
+  const code = SHARE_CODE;
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  const expiresAt = new Date(
+    now.getTime() + SHARE_DURATION_HOURS * 60 * 60 * 1000
+  );
 
   let validDocumentId: string | undefined;
 
@@ -738,115 +1052,7 @@ server.get("/shares/:id/access-logs", async (request, reply) => {
   };
 });
 
-function extractMedicalDataFromText({
-  filename,
-  extractedText,
-}: {
-  filename: string;
-  extractedText: string;
-}): ExtractedMedicalData {
-  const normalizedFilename = filename.toLowerCase();
-  const normalizedText = extractedText.toLowerCase();
-
-  const source = detectSource(filename, extractedText);
-
-  const looksLikeBiology =
-    normalizedFilename.includes("analyse") ||
-    normalizedFilename.includes("biologie") ||
-    normalizedFilename.includes("biologique") ||
-    normalizedFilename.includes("bilan") ||
-    normalizedText.includes("créatinine") ||
-    normalizedText.includes("creatinine") ||
-    normalizedText.includes("potassium") ||
-    normalizedText.includes("glycémie") ||
-    normalizedText.includes("glycemie") ||
-    normalizedText.includes("dfg");
-
-  if (looksLikeBiology) {
-    const hasHighGlucose =
-      normalizedText.includes("glycémie") || normalizedText.includes("glycemie");
-
-    return {
-      documentType: "Analyse biologique",
-      confidence: extractedText.length > 0 ? 0.94 : 0.78,
-      actionTitle: "Discuter le bilan rénal + potassium avec le médecin",
-      actionDescription:
-        "Analyse détectée comme bilan de suivi. Les résultats doivent être interprétés par un professionnel de santé.",
-      actionSource: source,
-      hasMedication: false,
-      medicationName: "",
-      medicationDosage: "",
-      medicationInstructions: "",
-      medicationSource: "",
-      hasObservation: hasHighGlucose,
-      observationTitle: hasHighGlucose ? "Glycémie à jeun limite haute" : "",
-      observationDescription: hasHighGlucose
-        ? "Point de vigilance détecté dans le compte rendu. À recontrôler ou contextualiser avec le médecin. Ceci n’est pas un diagnostic."
-        : "",
-      observationSource: hasHighGlucose ? source : "",
-      extractedTextPreview: extractedText.slice(0, 900),
-    };
-  }
-
-  const looksLikePrescription =
-    normalizedFilename.includes("ordonnance") ||
-    normalizedText.includes("ordonnance") ||
-    normalizedText.includes("prescription") ||
-    normalizedText.includes("ramipril") ||
-    normalizedText.includes("radiographie");
-
-  if (looksLikePrescription) {
-    return {
-      documentType: "Ordonnance",
-      confidence: extractedText.length > 0 ? 0.91 : 0.74,
-      actionTitle: "Radiographie du genou droit",
-      actionDescription: "Examen détecté depuis une ordonnance importée.",
-      actionSource: source,
-      hasMedication: true,
-      medicationName: normalizedText.includes("ramipril") ? "Ramipril" : "",
-      medicationDosage: normalizedText.includes("2,5") ? "2,5 mg" : "",
-      medicationInstructions: "Posologie à confirmer avec le médecin.",
-      medicationSource: source,
-      hasObservation: false,
-      observationTitle: "",
-      observationDescription: "",
-      observationSource: "",
-      extractedTextPreview: extractedText.slice(0, 900),
-    };
-  }
-
-  return {
-    documentType: "Document médical",
-    confidence: extractedText.length > 0 ? 0.65 : 0.35,
-    actionTitle: "Document médical à vérifier",
-    actionDescription:
-      "Le document a été importé, mais l’extraction automatique reste incertaine. Vérifiez les informations avant de les ajouter au carnet.",
-    actionSource: source,
-    hasMedication: false,
-    medicationName: "",
-    medicationDosage: "",
-    medicationInstructions: "",
-    medicationSource: "",
-    hasObservation: false,
-    observationTitle: "",
-    observationDescription: "",
-    observationSource: "",
-    extractedTextPreview: extractedText.slice(0, 900),
-  };
-}
-
-function detectSource(filename: string, extractedText: string): string {
-  const dateMatch = extractedText.match(/\b\d{2}\/\d{2}\/\d{4}\b/);
-  const detectedDate = dateMatch?.[0];
-
-  if (detectedDate) {
-    return `${filename} — ${detectedDate}`;
-  }
-
-  return filename;
-}
-
 await server.listen({
-  port: 4000,
+  port: API_PORT,
   host: "0.0.0.0",
 });
