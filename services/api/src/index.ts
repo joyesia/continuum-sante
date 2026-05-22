@@ -841,6 +841,75 @@ server.get("/treatments", async () => {
   }));
 });
 
+server.patch("/treatments/:id/start-date", async (request, reply) => {
+  const { id } = request.params as { id: string };
+  const body = request.body as { startDate?: string };
+
+  if (!body.startDate) {
+    return reply.code(400).send({
+      error: "startDate is required",
+    });
+  }
+
+  const treatment = await prisma.treatment.findUnique({
+    where: { id },
+  });
+
+  if (!treatment) {
+    return reply.code(404).send({
+      error: "Treatment not found",
+    });
+  }
+
+  const startDate = new Date(body.startDate);
+
+  if (Number.isNaN(startDate.getTime())) {
+    return reply.code(400).send({
+      error: "Invalid startDate",
+    });
+  }
+
+  const medicationRule = detectMedicationRule(normalizeText(treatment.name));
+
+  const isLongTerm = treatment.isLongTerm;
+  const durationDays =
+    treatment.durationDays ?? medicationRule?.defaultDurationDays ?? null;
+  const renewalAfterDays = medicationRule?.renewalAfterDays ?? null;
+  const nextDoseAfterDays = medicationRule?.nextDoseAfterDays ?? null;
+
+  const endDate =
+    isLongTerm || !durationDays ? null : addDays(startDate, durationDays);
+
+  const renewalDate = renewalAfterDays
+    ? addDays(startDate, renewalAfterDays)
+    : endDate;
+
+  const nextDoseDate = nextDoseAfterDays
+    ? addDays(startDate, nextDoseAfterDays)
+    : null;
+
+  const updatedTreatment = await prisma.treatment.update({
+    where: { id },
+    data: {
+      startDate,
+      endDate,
+      renewalDate,
+      nextDoseDate,
+    },
+  });
+
+  return {
+    id: updatedTreatment.id,
+    startDate: updatedTreatment.startDate,
+    endDate: updatedTreatment.endDate,
+    renewalDate: updatedTreatment.renewalDate,
+    nextDoseDate: updatedTreatment.nextDoseDate,
+    daysRemaining: daysUntil(updatedTreatment.endDate),
+    daysBeforeRenewal: daysUntil(updatedTreatment.renewalDate),
+    daysBeforeNextDose: daysUntil(updatedTreatment.nextDoseDate),
+  };
+});
+
 server.get("/reminders", async () => {
   const reminders = await prisma.reminder.findMany({
     orderBy: {

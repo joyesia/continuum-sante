@@ -297,6 +297,59 @@ export default function App() {
   }
 }
 
+async function updateTreatmentStartDate(treatment: DashboardTreatment) {
+  if (Platform.OS !== "web" || typeof window === "undefined") {
+    showAlert(
+      "Non disponible",
+      "La modification de date est disponible sur la version web du MVP."
+    );
+    return;
+  }
+
+  const currentDate = treatment.startDate
+    ? new Date(treatment.startDate).toISOString().slice(0, 10)
+    : new Date().toISOString().slice(0, 10);
+
+  const input = window.prompt(
+    "Date de début du traitement au format AAAA-MM-JJ",
+    currentDate
+  );
+
+  if (!input) {
+    return;
+  }
+
+  try {
+    const response = await fetch(
+      `http://localhost:4000/treatments/${treatment.id}/start-date`,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          startDate: input,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Mise à jour échouée ${response.status}: ${errorText}`);
+    }
+
+    await refreshDashboard();
+
+    showAlert(
+      "Date mise à jour",
+      "La date de début du traitement a été mise à jour."
+    );
+  } catch (error) {
+    console.error(error);
+    showAlert("Erreur", "Impossible de modifier la date de début.");
+  }
+}
+
 useEffect(() => {
   refreshDashboard();
 }, []);
