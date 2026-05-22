@@ -197,6 +197,7 @@ function getExtractionConfidenceLabel(confidence: number) {
   return `Lecture incertaine · ${score} %`;
 }
 
+
 function getExtractionConfidenceNote(confidence: number) {
   const score = Math.round(confidence * 100);
 
